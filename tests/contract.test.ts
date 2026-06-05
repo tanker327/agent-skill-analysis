@@ -273,6 +273,8 @@ describe('determinism', () => {
     const source = mem(MINIMAL_SKILL_FILES);
     const [r1, r2] = await Promise.all([analyze(source), analyze(source)]);
     expect(JSON.stringify(r1)).toBe(JSON.stringify(r2));
+    // Digest is explicitly stable across runs (not just transitively via JSON equality)
+    expect(r1.digest).toBe(r2.digest);
   });
 
   it('reversed source.list() order produces identical output', async () => {
@@ -286,6 +288,8 @@ describe('determinism', () => {
     };
     const [r1, r2] = await Promise.all([analyze(mem(files)), analyze(memReversed(files))]);
     expect(JSON.stringify(r1)).toBe(JSON.stringify(r2));
+    // Digest is explicitly stable across list() orderings
+    expect(r1.digest).toBe(r2.digest);
   });
 });
 
@@ -365,6 +369,54 @@ describe('version sync', () => {
   });
 });
 
+// ── 6. Digest stability (plan §5 R1 — the authoritative definition) ────────────
+//
+// This section fills the placeholder that has been reserved in this file since P0.
+// The three invariants below are the executable encoding of D-A4:
+//
+//   LEFT:  metadata.version is stripped from the canonical hash → version-only bumps
+//          leave the digest unchanged (so a skill's "content identity" is stable across
+//          release tagging without republishing or invalidating cached digests).
+//
+//   RIGHT: any real content change (body text, non-version frontmatter, other files)
+//          → digest changes. The digest is a true content fingerprint.
+//
+//   YAML:  frontmatter format-only changes (whitespace, quote style, key order) don't
+//          change what the YAML parser produces, so the canonical JSON is the same,
+//          and the digest is the same. Linters may reformat skill files safely.
+
+describe('digest stability (P5 — plan §5 R1)', () => {
+  const FM_V1 =
+    '---\nname: test-skill\ndescription: A test skill.\nmetadata:\n  version: "1.0.0"\n---\n\n';
+  const FM_V999 =
+    '---\nname: test-skill\ndescription: A test skill.\nmetadata:\n  version: "9.9.9"\n---\n\n';
+  const BODY = '# Test Skill\n\nDo the thing.\n';
+  const SUPPORT = { 'README.md': '# Readme', LICENSE: 'MIT' };
+
+  it('version-only bump → digest UNCHANGED (left side of D-A4)', async () => {
+    const r1 = await analyze(mem({ 'SKILL.md': FM_V1 + BODY, ...SUPPORT }));
+    const r2 = await analyze(mem({ 'SKILL.md': FM_V999 + BODY, ...SUPPORT }));
+    expect(r1.digest).toBe(r2.digest);
+  });
+
+  it('one body character changed → digest changes (right side of D-A4)', async () => {
+    const r1 = await analyze(mem({ 'SKILL.md': FM_V1 + 'Do the thing.\n', ...SUPPORT }));
+    const r2 = await analyze(mem({ 'SKILL.md': FM_V1 + 'Do the Thing.\n', ...SUPPORT }));
+    expect(r1.digest).not.toBe(r2.digest);
+  });
+
+  it('frontmatter format-only change (YAML quote style) → digest UNCHANGED', async () => {
+    // Both parse to the same frontmatter object → same canonical JSON → same digest
+    const yaml1 =
+      '---\nname: test-skill\ndescription: "A test skill."\nmetadata:\n  version: "1.0.0"\n---\n\n';
+    const yaml2 =
+      '---\nname: test-skill\ndescription: A test skill.\nmetadata:\n  version: "1.0.0"\n---\n\n';
+    const r1 = await analyze(mem({ 'SKILL.md': yaml1 + BODY, ...SUPPORT }));
+    const r2 = await analyze(mem({ 'SKILL.md': yaml2 + BODY, ...SUPPORT }));
+    expect(r1.digest).toBe(r2.digest);
+  });
+});
+
 // ── Never-throw ────────────────────────────────────────────────────────────────
 
 describe('never-throw', () => {
@@ -383,6 +435,17 @@ describe('never-throw', () => {
         'SKILL.md': '---\nname: x\ndescription: y\nmetadata:\n  count: 42\n  flag: true\n---\nBody',
       },
     },
+    // YAML anchor adversarial cases — these are the most dangerous because cyclic
+    // anchors produce circular JS objects that crash JSON.stringify and infinite-recurse
+    // through canonicalJSON. Builder applies a JSON-safe projection at the parse boundary.
+    {
+      label: 'cyclic YAML anchor (a: &x {b: *x})',
+      files: { 'SKILL.md': '---\na: &x\n  b: *x\n---\n\nBody.' },
+    },
+    {
+      label: 'non-cyclic shared YAML anchor (a: &x {v: 1}, b: *x)',
+      files: { 'SKILL.md': '---\na: &x\n  v: 1\nb: *x\n---\n\nBody.' },
+    },
   ];
 
   for (const { label, files } of BAD_CONTENT_CASES) {
@@ -390,4 +453,43 @@ describe('never-throw', () => {
       await expect(analyze(mem(files))).resolves.toBeDefined();
     });
   }
+});
+
+// ── YAML anchor edge cases — output safety and digest stability ────────────────
+//
+// Pinning the deeper guarantees for the two anchor cases:
+//   cyclic      → output must be JSON-serializable (no circular JS objects in
+//                 the result) and the digest must be stable across runs.
+//   non-cyclic  → shared anchor produces deterministic, JSON-safe output.
+//
+// These are part of the D-A4 matrix: cyclic/non-finite YAML is adversarial
+// input, but the digest definition must still produce a stable sha256: value.
+
+describe('YAML anchor edge cases — output JSON-safety and digest stability', () => {
+  it('cyclic anchor: output is JSON.stringify-safe and digest is stable across runs', async () => {
+    // Cyclic YAML: a: &x {b: *x} → circular JS object.
+    // Builder projects this to a JSON-safe value at the parse boundary so that
+    // canonicalJSON never recurses infinitely and JSON.stringify(output) never throws.
+    const source = mem({ 'SKILL.md': '---\na: &x\n  b: *x\n---\n\nBody.' });
+    const [r1, r2] = await Promise.all([analyze(source), analyze(source)]);
+    // Schema must accept the output
+    expect(() => SkillAnalysisSchema.parse(r1)).not.toThrow();
+    // Output must not be a circular structure — JSON.stringify must not throw
+    expect(() => JSON.stringify(r1)).not.toThrow();
+    // Digest must be stable: the cycle projection must be deterministic
+    expect(r1.digest).toBe(r2.digest);
+    expect(r1.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it('non-cyclic shared anchor: output is deterministic and JSON-safe', async () => {
+    // Non-cyclic YAML: a: &x {v: 1}, b: *x → {a: {v:1}, b: {v:1}} (not circular).
+    // JSON.stringify handles this fine; the digest must be consistent.
+    const source = mem({ 'SKILL.md': '---\na: &x\n  v: 1\nb: *x\n---\n\nBody.' });
+    const [r1, r2] = await Promise.all([analyze(source), analyze(source)]);
+    expect(() => SkillAnalysisSchema.parse(r1)).not.toThrow();
+    expect(() => JSON.stringify(r1)).not.toThrow();
+    // Full output determinism
+    expect(JSON.stringify(r1)).toBe(JSON.stringify(r2));
+    expect(r1.digest).toBe(r2.digest);
+  });
 });

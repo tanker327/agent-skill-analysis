@@ -6,6 +6,7 @@
  */
 import { analyzeBody } from './body.js';
 import { compareDiagnostics, DiagnosticCollector } from './diagnostics.js';
+import { computeDigest } from './digest.js';
 import { detectLicense, detectReadme } from './docs.js';
 import { parseFrontmatterFromText } from './frontmatter.js';
 import { buildManifest } from './manifest.js';
@@ -38,9 +39,6 @@ export const DEFAULT_IGNORE: readonly string[] = [
   '.DS_Store',
   'Thumbs.db',
 ];
-
-/** sha256("") — placeholder until the real digest lands in P5 (plan §5 R1). */
-const EMPTY_DIGEST = 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
 function isIgnored(path: string, ignore: readonly string[]): boolean {
   return path.split('/').some((segment) => ignore.includes(segment));
@@ -83,6 +81,9 @@ export async function analyze(
 
   let frontmatter: Frontmatter = EMPTY_FRONTMATTER;
   let bodyText: string | null = null;
+  // skillMdText is the raw decoded SKILL.md content — passed to computeDigest
+  // so the digest stage can re-parse the YAML block fresh (R1 definition).
+  let skillMdText: string | null = null;
 
   if (!paths.includes('SKILL.md')) {
     // Stage ②: SKILL.md absent — emit no-skill-md, skip ③④⑤ (flow §6 row 1).
@@ -90,9 +91,9 @@ export async function analyze(
   } else {
     // Stage ②: read + UTF-8 decode (fatal:false → invalid bytes → replacement chars).
     const bytes = await source.read('SKILL.md');
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    skillMdText = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
     // Stages ③④⑤: split / normalize / validate.
-    const parsed = parseFrontmatterFromText(text, dir, collector);
+    const parsed = parseFrontmatterFromText(skillMdText, dir, collector);
     frontmatter = parsed.frontmatter;
     bodyText = parsed.body;
   }
@@ -138,6 +139,10 @@ export async function analyze(
   // (absent from manifest.files) still resolve correctly when linked from body.
   const references = analyzeReferences(bodyText, paths, readmePath, licensePath, collector);
 
+  // Stage: digest (P5). computeDigest re-parses the SKILL.md YAML block fresh
+  // so the canonical JSON uses the raw parsed object (R1), not our normalized shape.
+  const digest = await computeDigest(manifest.files, skillMdText);
+
   // Policy resolution (superseded by finalize.ts in P6): translate raw
   // diagnostics to output Diagnostics, skipping 'off'-severity entries and
   // threading the optional `field` through.
@@ -175,7 +180,7 @@ export async function analyze(
     },
     references,
     size: manifest.size,
-    digest: EMPTY_DIGEST,
+    digest,
     diagnostics,
   };
 }

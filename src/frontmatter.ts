@@ -54,6 +54,58 @@ export function splitSkillMd(text: string): SplitResult {
   return { yamlBlock: m[1] ?? '', body: text.slice(m[0].length) };
 }
 
+// ── JSON-safe projection ───────────────────────────────────────────────────
+
+/**
+ * Recursively project `value` into a JSON-serializable form, breaking any
+ * cyclic references so that `canonicalJSON` and `JSON.stringify` never throw.
+ *
+ * Rules (normative — used by both frontmatter normalization and the digest stage):
+ *   • Primitives (null, boolean, number, string) → passed through unchanged.
+ *   • Objects and arrays → cloned recursively, depth-first, in sorted-key order
+ *     for objects (same key order as canonicalJSON, so the definition is
+ *     consistent end-to-end).
+ *   • Cyclic reference (object/array already in the current ancestor path) →
+ *     `null` at the point of revisit.
+ *   • Non-cyclic structural sharing (same object reachable via two distinct
+ *     non-cyclic paths) → cloned independently at each site (duplication is
+ *     fine and deterministic).
+ *   • Non-finite numbers (.inf / .nan from YAML) and -0 follow
+ *     JSON.stringify semantics when serialized: Infinity→null, NaN→null, -0→0.
+ *
+ * `ancestors` tracks the objects/arrays on the current traversal path
+ * (not all previously visited nodes), so non-cyclic shared anchors are
+ * duplicated rather than collapsed.
+ */
+export function projectJsonSafe(value: unknown, ancestors: Set<object> = new Set()): unknown {
+  // Primitives pass through unchanged.
+  if (value === null || typeof value !== 'object') return value;
+
+  // Cycle detected — this object/array is an ancestor of itself.
+  if (ancestors.has(value)) return null;
+
+  ancestors.add(value);
+
+  let result: unknown;
+  if (Array.isArray(value)) {
+    // Preserve element order (arrays have no key sort).
+    result = value.map((item) => projectJsonSafe(item, ancestors));
+  } else {
+    // Sorted-key order (matches canonicalJSON) — deterministic traversal.
+    const obj = value as Record<string, unknown>;
+    const projected: Record<string, unknown> = {};
+    for (const k of Object.keys(obj).sort()) {
+      projected[k] = projectJsonSafe(obj[k], ancestors);
+    }
+    result = projected;
+  }
+
+  // Done with this node — remove from ancestor path so sibling subtrees
+  // that reference the same object are cloned rather than collapsed.
+  ancestors.delete(value);
+  return result;
+}
+
 // ── ④ Normalize ────────────────────────────────────────────────────────────
 
 /** The six known frontmatter keys (as they appear in YAML). */
@@ -278,7 +330,11 @@ export function parseFrontmatterFromText(
 
   if (yamlBlock !== null) {
     try {
-      const parsed = parseYaml(yamlBlock) as unknown;
+      // Project through projectJsonSafe immediately after parsing to break any
+      // cyclic YAML anchor references (e.g. `a: &x\n  b: *x`) before the raw
+      // object reaches normalizeFrontmatter or frontmatter.extra — both of
+      // which must be JSON-serializable. Non-cyclic shared anchors are cloned.
+      const parsed = projectJsonSafe(parseYaml(yamlBlock) as unknown);
       if (
         parsed !== null &&
         parsed !== undefined &&
