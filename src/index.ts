@@ -26,3 +26,5 @@ export type {
 } from './schema.js';
 export { DIAGNOSTIC_REGISTRY } from './diagnostics.js';
 export type { DefaultSeverity, DiagnosticCode, DiagnosticSpec } from './diagnostics.js';
+export { DEFAULT_TOKENIZER } from './tokenizer.js';
+export { BODY_LINE_LIMIT, BODY_TOKEN_LIMIT } from './body.js';

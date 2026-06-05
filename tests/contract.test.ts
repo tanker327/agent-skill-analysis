@@ -112,7 +112,7 @@ const NO_FRONTMATTER_FILES = {
  * P1: frontmatter-parse, name-missing, description-missing, name-too-long,
  *     name-invalid, name-dir-mismatch, description-too-long, compatibility-too-long,
  *     metadata-non-string, version-missing, allowed-tools-experimental
- *     (name-reserved is 'off'-exempt — covered via rules-override in P6 task #20)
+ *     name-reserved: defaultSeverity 'off', surfaced via options.rules in P6 fixture below
  * P2: body-too-long (tokens > BODY_TOKEN_LIMIT),
  *     body-too-many-lines (lines > BODY_LINE_LIMIT)
  *     Fixture sizes are computed from the imported constants so threshold
@@ -123,6 +123,7 @@ const NO_FRONTMATTER_FILES = {
  * P4: broken-ref (body links to a path not in files[]),
  *     orphan-file (covered by full-skill: scripts/run.py is present but unreferenced),
  *     file-too-large (options.maxFileBytes set; one file exceeds it)
+ * P6: name-reserved (surfaced via options.rules: {'name-reserved':'error'} override)
  */
 const COVERAGE_FIXTURES: Array<{
   label: string;
@@ -264,6 +265,22 @@ const COVERAGE_FIXTURES: Array<{
     },
     options: { maxFileBytes: 200 },
   },
+
+  // ── P6 finalize — rules-override ───────────────────────────────────────────
+  // name-reserved: defaultSeverity 'off', surfaced via options.rules override.
+  // This fixture is the forward-vocab coverage for name-reserved — the first
+  // fixture that causes it to appear in analyze() output (through the rules
+  // override applied by finalize). README + LICENSE present to avoid noise.
+  {
+    label: 'name-reserved-override (→ name-reserved via rules)',
+    files: {
+      'SKILL.md':
+        '---\nname: default\ndescription: y.\nmetadata:\n  version: "1.0.0"\n---\n\nBody.',
+      'README.md': '# R',
+      LICENSE: 'MIT',
+    },
+    options: { rules: { 'name-reserved': 'error' } },
+  },
 ];
 
 // ── 1 & 2. Determinism ─────────────────────────────────────────────────────────
@@ -319,15 +336,13 @@ describe('diagnostic vocabulary', () => {
       }
     }
 
-    // Codes with defaultSeverity 'off' are suppressed from output by default;
-    // the only way to surface them is via options.rules override (a finalize / P6
-    // concern).  Exempt them from the forward direction so the vocab test stays
-    // green at P1 when name-reserved registers with 'off' — it won't appear in
-    // any fixture's output until finalize.ts lands in P6 and task #20 adds the
-    // rules-override fixture to this COVERAGE_FIXTURES list.
-    // The reverse direction is NOT exempted: if a fixture somehow emits an 'off'
-    // code it must still exist in DIAGNOSTIC_REGISTRY (catches typos and forward-
-    // of-phase promises equally).
+    // Codes with defaultSeverity 'off' are suppressed from output unless a consumer
+    // uses options.rules to surface them. The forward check excludes 'off' codes so
+    // this test passes even when finalize hasn't landed yet — the name-reserved-override
+    // fixture (added in P6 task #20) will cause name-reserved to appear in `emitted`
+    // once finalize applies the override, but the forward exclusion means the test
+    // doesn't REQUIRE it. The reverse direction is NOT exempted: any emitted code
+    // (including one surfaced via override) must exist in DIAGNOSTIC_REGISTRY.
     const registeredCodes = Object.entries(DIAGNOSTIC_REGISTRY)
       .filter(([, spec]) => spec.defaultSeverity !== 'off')
       .map(([code]) => code);

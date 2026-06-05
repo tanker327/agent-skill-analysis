@@ -657,14 +657,24 @@ describe('name-reserved', () => {
     expect(() => SkillAnalysisSchema.parse(result)).not.toThrow();
   });
 
-  // (C) P6 — rules-override surfaces the code. Converted in task #20.
-  // Also add a matching COVERAGE_FIXTURES entry in contract.test.ts at that time
-  // so the forward vocab check (non-'off' codes) covers it.
-  it.todo(
-    '(C) task#20 / P6: reserved name + options.rules {"name-reserved":"error"} → ' +
-      'name-reserved appears in diagnostics with severity error ' +
-      '(add to contract.test.ts COVERAGE_FIXTURES at same time)',
-  );
+  // (C) P6 — rules-override surfaces the code (converted from todo in task #20).
+  // A matching COVERAGE_FIXTURES entry in contract.test.ts covers the vocab check.
+  it('(C) reserved name + options.rules {"name-reserved":"error"} → name-reserved in output with severity error', async () => {
+    const reserved = RESERVED_NAMES[0]; // 'default'
+    const result = await analyze(
+      mem({
+        'SKILL.md': `---\nname: ${reserved}\ndescription: y.\nmetadata:\n  version: "1.0.0"\n---\n\nBody.`,
+        'README.md': '# Readme',
+        LICENSE: 'MIT',
+      }),
+      { rules: { 'name-reserved': 'error' } },
+    );
+    expect(() => SkillAnalysisSchema.parse(result)).not.toThrow();
+    const diag = result.diagnostics.find((d) => d.code === 'name-reserved');
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe('error');
+    expect(result.ok).toBe(false);
+  });
 });
 
 describe('name-dir-mismatch', () => {

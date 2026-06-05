@@ -5,7 +5,8 @@
  * P1–P5; finalize policy lands in P6.
  */
 import { analyzeBody } from './body.js';
-import { compareDiagnostics, DiagnosticCollector } from './diagnostics.js';
+import { DiagnosticCollector } from './diagnostics.js';
+import { finalizeDiagnostics } from './finalize.js';
 import { computeDigest } from './digest.js';
 import { detectLicense, detectReadme } from './docs.js';
 import { parseFrontmatterFromText } from './frontmatter.js';
@@ -17,7 +18,6 @@ import {
   SCHEMA_VERSION,
   SPEC_VERSION,
   type AnalyzeOptions,
-  type Diagnostic,
   type Frontmatter,
   type SkillAnalysis,
 } from './schema.js';
@@ -143,23 +143,8 @@ export async function analyze(
   // so the canonical JSON uses the raw parsed object (R1), not our normalized shape.
   const digest = await computeDigest(manifest.files, skillMdText);
 
-  // Policy resolution (superseded by finalize.ts in P6): translate raw
-  // diagnostics to output Diagnostics, skipping 'off'-severity entries and
-  // threading the optional `field` through.
-  const diagnostics: Diagnostic[] = [];
-  for (const raw of collector.all()) {
-    // 'off' entries are suppressed by default; consumers may enable them via
-    // options.rules in P6 finalize. The 'off' branch is required here because
-    // name-reserved (registered P1) widens RegisteredDefaultSeverity to include
-    // 'off', making the assignment to Diagnostic.severity ill-typed without it.
-    if (raw.severity === 'off') continue;
-    const diag: Diagnostic = { code: raw.code, severity: raw.severity, message: raw.message };
-    if (raw.field !== undefined) diag.field = raw.field;
-    if (raw.hint !== undefined) diag.hint = raw.hint;
-    diagnostics.push(diag);
-  }
-  diagnostics.sort(compareDiagnostics);
-  const ok = !diagnostics.some((d) => d.severity === 'error');
+  // Stage ⑪: finalize — apply options.rules overrides, sort, compute ok (P6).
+  const { diagnostics, ok } = finalizeDiagnostics(collector.all(), opts.rules);
 
   return {
     schemaVersion: SCHEMA_VERSION,
