@@ -27,6 +27,7 @@ import {
   ANALYZER_VERSION,
   type SkillSource,
 } from '../src/index.js';
+import { BODY_TOKEN_LIMIT, BODY_LINE_LIMIT } from '../src/body.js';
 import { mem, memReversed } from './helpers.js';
 
 // ── Shared fixture definitions ─────────────────────────────────────────────────
@@ -111,6 +112,11 @@ const NO_FRONTMATTER_FILES = {
  *     name-invalid, name-dir-mismatch, description-too-long, compatibility-too-long,
  *     metadata-non-string, version-missing, allowed-tools-experimental
  *     (name-reserved is 'off'-exempt — covered via rules-override in P6 task #20)
+ * P2: body-too-long (> 4000 tokens at approx-chars-4 → > 16000 chars),
+ *     body-too-many-lines (> 500 lines)
+ *     Fixtures inline-compute the body sizes from the settled thresholds;
+ *     refactor to import BODY_TOKEN_LIMIT/BODY_LINE_LIMIT from src/body.ts
+ *     once that module exists (avoids breaking 20 passing tests during TDD).
  */
 const COVERAGE_FIXTURES: Array<{
   label: string;
@@ -178,6 +184,30 @@ const COVERAGE_FIXTURES: Array<{
     files: {
       'SKILL.md':
         '---\nname: meta-skill\ndescription: y.\nmetadata:\n  version: "1.0.0"\n  count: 42\n---\nBody.',
+    },
+  },
+
+  // ── P2 body budget ─────────────────────────────────────────────────────────
+  // body-too-long: approx-chars-4 counts Math.ceil(chars / 4) tokens, so
+  // BODY_TOKEN_LIMIT * 4 + 1 chars → BODY_TOKEN_LIMIT + 1 tokens → triggers.
+  {
+    label: 'long-token-body (→ body-too-long)',
+    files: {
+      'SKILL.md':
+        '---\nname: longbody\ndescription: y.\nmetadata:\n  version: "1.0.0"\n---\n\n' +
+        'x'.repeat(BODY_TOKEN_LIMIT * 4 + 1),
+    },
+  },
+  // body-too-many-lines: Array(BODY_LINE_LIMIT + 2) gives BODY_LINE_LIMIT + 2 lines
+  // (split('\n').length) — strictly greater than BODY_LINE_LIMIT → triggers.
+  {
+    label: 'many-lines-body (→ body-too-many-lines)',
+    files: {
+      'SKILL.md':
+        '---\nname: manylines\ndescription: y.\nmetadata:\n  version: "1.0.0"\n---\n\n' +
+        Array(BODY_LINE_LIMIT + 2)
+          .fill('x')
+          .join('\n'),
     },
   },
 ];

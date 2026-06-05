@@ -4,6 +4,7 @@
  * schema-valid and byte-deterministic from day one. Stages ②–⑩ light up in
  * P1–P5; finalize policy lands in P6.
  */
+import { analyzeBody } from './body.js';
 import { compareDiagnostics, DiagnosticCollector } from './diagnostics.js';
 import { parseFrontmatterFromText } from './frontmatter.js';
 import {
@@ -17,6 +18,7 @@ import {
   type SkillAnalysis,
 } from './schema.js';
 import type { SkillSource } from './source.js';
+import { DEFAULT_TOKENIZER } from './tokenizer.js';
 
 /**
  * Default ignore set (F1), conservative by design. A path is ignored when any
@@ -37,9 +39,6 @@ export const DEFAULT_IGNORE: readonly string[] = [
 /** sha256("") — placeholder until the real digest lands in P5 (plan §5 R1). */
 const EMPTY_DIGEST = 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
-/** Name of the default chars/4 tokenizer (implemented in P2, src/tokenizer.ts). */
-const DEFAULT_TOKENIZER_NAME = 'approx-chars-4';
-
 function isIgnored(path: string, ignore: readonly string[]): boolean {
   return path.split('/').some((segment) => ignore.includes(segment));
 }
@@ -57,6 +56,9 @@ export async function analyze(
   // The single production-path zod parse: validate consumer options at the door.
   const opts = AnalyzeOptionsSchema.parse(options ?? {});
   const ignore = opts.ignore ?? DEFAULT_IGNORE;
+  // Resolve the tokenizer once — injected or default. All token counts use
+  // the same instance so `tokens.tokenizer` matches the actual counts (R2).
+  const tokenizer = opts.tokenizer ?? DEFAULT_TOKENIZER;
 
   // Stage ①: enumerate + ignore. Sorted immediately — source order is never trusted.
   const paths = (await source.list()).filter((p) => !isIgnored(p, ignore)).sort();
@@ -92,15 +94,25 @@ export async function analyze(
     bodyText = parsed.body;
   }
 
-  // Stub body object for P1 boundary — lines/headings refined in P2 (body.ts).
-  const body =
-    bodyText !== null
-      ? {
-          text: bodyText,
-          lines: bodyText.length === 0 ? 0 : bodyText.split('\n').length,
-          headings: [] as { depth: number; text: string }[],
-        }
-      : null;
+  // Stage ⑥: body analysis (P2). analyzeBody returns lines, headings, and the
+  // pre-computed body token count so analyze.ts doesn't tokenize twice.
+  let body: { text: string; lines: number; headings: { depth: number; text: string }[] } | null =
+    null;
+  let bodyTokens = 0;
+  if (bodyText !== null) {
+    const ba = analyzeBody(bodyText, collector, tokenizer);
+    body = { text: bodyText, lines: ba.lines, headings: ba.headings };
+    bodyTokens = ba.bodyTokens;
+  }
+
+  // tokens.metadata = tokenize(name + ' ' + description) where only non-null
+  // values are joined. Deterministic contract: both null → '' → 0 tokens;
+  // one null → just the non-null value; both present → 'name description'.
+  // Single-space separator — compact and natural (R2, approved 2026-06-05).
+  const metadataText = [frontmatter.name, frontmatter.description]
+    .filter((v): v is string => v !== null)
+    .join(' ');
+  const metadataTokens = tokenizer.count(metadataText);
 
   // Policy resolution (superseded by finalize.ts in P6): translate raw
   // diagnostics to output Diagnostics, skipping 'off'-severity entries and
@@ -131,7 +143,12 @@ export async function analyze(
     readme: null,
     license: { declared: null, spdx: null, file: null, text: null, source: null },
     files: [],
-    tokens: { metadata: 0, body: 0, total: 0, tokenizer: DEFAULT_TOKENIZER_NAME },
+    tokens: {
+      metadata: metadataTokens,
+      body: bodyTokens,
+      total: metadataTokens + bodyTokens,
+      tokenizer: tokenizer.name,
+    },
     references: { declared: [], resolved: [], broken: [], orphans: [] },
     size: { total: 0, byKind: {} },
     digest: EMPTY_DIGEST,

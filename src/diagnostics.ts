@@ -93,6 +93,18 @@ export const DIAGNOSTIC_REGISTRY = {
     defaultSeverity: 'warning',
     message: 'allowed-tools is experimental and support varies across agents.',
   },
+
+  // ── P2 · body analysis (stage ⑥) — soft advisory budgets, not spec violations ──
+  'body-too-long': {
+    defaultSeverity: 'warning',
+    message: 'SKILL.md body exceeds the recommended token budget.',
+    hint: 'Move detail into references/ files that agents load on demand (progressive disclosure).',
+  },
+  'body-too-many-lines': {
+    defaultSeverity: 'warning',
+    message: 'SKILL.md body exceeds the recommended line count.',
+    hint: 'Move detail into references/ files that agents load on demand (progressive disclosure).',
+  },
 } as const satisfies Record<string, DiagnosticSpec>;
 
 export type DiagnosticCode = keyof typeof DIAGNOSTIC_REGISTRY;
