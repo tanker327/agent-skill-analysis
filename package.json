@@ -16,12 +16,12 @@
   "author": "Eric Wu <tanker327@gmail.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tanker327/skill-analysis.git"
+    "url": "git+https://github.com/tanker327/agent-skill-analysis.git"
   },
   "bugs": {
-    "url": "https://github.com/tanker327/skill-analysis/issues"
+    "url": "https://github.com/tanker327/agent-skill-analysis/issues"
   },
-  "homepage": "https://github.com/tanker327/skill-analysis#readme",
+  "homepage": "https://github.com/tanker327/agent-skill-analysis#readme",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
