@@ -1,76 +1,46 @@
 # agent-skill-analysis
 
-[![npm version](https://img.shields.io/npm/v/agent-skill-analysis.svg)](https://www.npmjs.com/package/agent-skill-analysis)
-[![CI](https://github.com/tanker327/skill-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/tanker327/skill-analysis/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Parse and analyze Claude Code / AI agent skills (`SKILL.md` files) for quality, structure, and triggering effectiveness.
+Deterministic analysis of AI agent skills: give it a skill folder, get back a single, self-describing `SkillAnalysis` JSON.
 
-## Installation
+> **Status: early development.** The library is being rebuilt around the design below — the API shown is the target, not yet published. Docs will grow as the project does.
 
-```bash
-npm install agent-skill-analysis
-```
+## What it does
 
-Works with both ESM and CommonJS, Node.js >= 18.
+Point it at a skill folder (on disk or in memory) and it produces one JSON document covering:
 
-## Usage
+- **Frontmatter** — parsed, normalized, and validated against the Agent Skills spec; unknown keys are preserved, never rejected
+- **Body** — line count, heading outline, token estimates for the progressive-disclosure budget (metadata / body / total)
+- **Docs** — README detection, LICENSE detection with SPDX identification
+- **Files** — per-file manifest with size, sha256, and kind (`instructions` / `reference` / `script` / `asset` / …)
+- **References** — which files `SKILL.md` points at: resolved, broken, and orphaned
+- **Digest** — a content fingerprint that ignores `metadata.version` bumps, so a version-only change keeps the same identity
+- **Diagnostics** — every problem becomes a `{ code, severity, message }` entry with stable codes; severities are overridable by the consumer
 
-```ts
-import { readFile } from 'node:fs/promises';
-import { parseSkill, analyzeSkill } from 'agent-skill-analysis';
+## Design principles
 
-const content = await readFile('SKILL.md', 'utf8');
+- **Deterministic** — the same file tree always produces byte-identical JSON: no timestamps, no randomness, fixed ordering everywhere
+- **Never throws on bad content** — a broken skill yields diagnostics, not exceptions; the only error boundary is file IO
+- **Pure, portable JSON** — fully serializable, vendor-neutral, versioned with `schemaVersion`
 
-const skill = parseSkill(content);
-// → { metadata: { name, description, ... }, body, raw }
-
-const report = analyzeSkill(skill);
-// → { findings: [{ analyzer, severity, message }], score: 0–100 }
-
-for (const finding of report.findings) {
-  console.log(`[${finding.severity}] ${finding.analyzer}: ${finding.message}`);
-}
-console.log(`Score: ${report.score}/100`);
-```
-
-### Custom analyzers
+## Planned usage
 
 ```ts
-import { analyzeSkill, defaultAnalyzers, type Analyzer } from 'agent-skill-analysis';
+import { analyze, fromFiles } from 'agent-skill-analysis';
+import { fromDir } from 'agent-skill-analysis/node';
 
-const bodyLengthAnalyzer: Analyzer = {
-  name: 'body-length',
-  analyze(skill) {
-    if (skill.body.length > 10_000) {
-      return [
-        {
-          analyzer: 'body-length',
-          severity: 'warning',
-          message: 'Skill body is very long — consider splitting into reference files.',
-        },
-      ];
-    }
-    return [];
-  },
-};
+// from disk
+const analysis = await analyze(fromDir('./my-skill'));
 
-const report = analyzeSkill(skill, [...defaultAnalyzers, bodyLengthAnalyzer]);
+// or from memory (e.g. an unpacked tarball)
+const analysis2 = await analyze(fromFiles(files));
+
+analysis.ok; // no error-level diagnostics
+analysis.frontmatter; // name, description, version, extra keys, …
+analysis.diagnostics; // [{ code: "readme-missing", severity: "warning", … }]
+analysis.digest; // content fingerprint
 ```
-
-## API
-
-| Export | Description |
-| --- | --- |
-| `parseSkill(content)` | Parse raw `SKILL.md` content into a `Skill` (frontmatter metadata + body). |
-| `analyzeSkill(skill, analyzers?)` | Run analyzers and aggregate findings into an `AnalysisResult` with a 0–100 score. |
-| `defaultAnalyzers` | The built-in analyzer set. |
-| `descriptionAnalyzer` | Checks the description exists, fits length limits, and includes triggering guidance. |
-| `structureAnalyzer` | Checks the name is kebab-case and the body is non-empty. |
-
-Types: `Skill`, `SkillMetadata`, `Analyzer`, `AnalysisResult`, `Finding`, `Severity`.
-
-> **Note:** frontmatter parsing currently handles flat `key: value` pairs only. Nested YAML support is on the roadmap.
 
 ## Development
 
