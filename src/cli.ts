@@ -19,6 +19,9 @@
 import { analyze } from './analyze.js';
 import { fromDir } from './node.js';
 import type { Diagnostic, SkillAnalysis } from './schema.js';
+// Inlined by tsup at build time — the version/link footer can never drift
+// from package.json, and the runtime bundle does no fs lookup for it.
+import pkg from '../package.json';
 
 // ── IO boundary ─────────────────────────────────────────────────────────────
 
@@ -32,17 +35,32 @@ export interface CliIO {
   color: boolean;
 }
 
+/** Repository link for the usage footer — the homepage minus its #readme anchor. */
+const REPO_URL = pkg.homepage.replace(/#readme$/, '');
+
 export const USAGE = [
-  'Usage: asa <folder> [--json]',
+  'asa — analyze an AI-agent skill folder (a SKILL.md plus resources)',
   '',
-  'Analyze an AI-agent skill folder (a SKILL.md plus resources).',
+  'Usage',
+  '  asa <folder> [--json]',
   '',
-  'Arguments:',
+  'Arguments',
   '  folder      path to the skill folder (e.g. "." for the current directory)',
   '',
-  'Options:',
+  'Options',
   '  --json      print the raw SkillAnalysis JSON instead of the pretty view',
   '  -h, --help  show this help',
+  '',
+  'Examples',
+  '  asa ./my-skill          pretty report: status, summary, files, diagnostics',
+  '  asa ./my-skill --json   the raw SkillAnalysis JSON (the full contract)',
+  '',
+  'Exit codes',
+  '  0  analyzed and ok',
+  '  1  analyzed, error-severity diagnostics remain',
+  '  2  usage or IO error (nothing analyzed)',
+  '',
+  `${pkg.name} v${pkg.version} — ${REPO_URL}`,
 ].join('\n');
 
 // ── ANSI helpers ────────────────────────────────────────────────────────────

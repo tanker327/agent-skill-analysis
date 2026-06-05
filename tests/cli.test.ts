@@ -25,6 +25,7 @@ import {
   type CliIO,
 } from '../src/cli.js';
 import { mem } from './helpers.js';
+import pkg from '../package.json';
 
 const FIXTURES_DIR = path.join(fileURLToPath(new URL('.', import.meta.url)), 'fixtures');
 const MINIMAL_SKILL_DIR = path.join(FIXTURES_DIR, 'minimal-skill');
@@ -116,6 +117,14 @@ describe('runCli', () => {
       expect(await runCli([flag], io)).toBe(0);
       expect(out).toEqual([USAGE]);
     }
+  });
+
+  it('usage footer carries the package version and repo link from package.json', () => {
+    // Derived from package.json (the source of truth), never hardcoded copies —
+    // a version bump or repo move must not be able to leave USAGE stale.
+    const footer = USAGE.split('\n').at(-1);
+    expect(footer).toBe(`${pkg.name} v${pkg.version} — ${pkg.homepage.replace(/#readme$/, '')}`);
+    expect(footer).toContain('https://github.com/tanker327/agent-skill-analysis');
   });
 
   it('unknown option → usage on stderr, exit 2', async () => {
