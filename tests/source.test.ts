@@ -5,6 +5,8 @@
  * real fixture at tests/fixtures/minimal-skill/ (the only disk fixture in P0).
  * Everything else uses fromFiles (in-memory, no fs flakiness).
  */
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -130,5 +132,21 @@ describe('fromDir', () => {
   it('read() rejects for a path not in the directory', async () => {
     const source = fromDir(MINIMAL_SKILL_DIR);
     await expect(source.read('does-not-exist.md')).rejects.toThrow();
+  });
+
+  it('list() skips entries that are neither files nor directories (symlink)', async () => {
+    // Symlinks can't live in the git fixture (checkout differs across platforms),
+    // so build a throwaway dir: readdir's Dirent reports a symlink as neither
+    // isFile() nor isDirectory(), and walk() must skip it.
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'skill-analysis-symlink-'));
+    try {
+      await writeFile(path.join(tmp, 'SKILL.md'), '# real file\n');
+      await symlink(path.join(tmp, 'SKILL.md'), path.join(tmp, 'link.md'));
+      const files = await fromDir(tmp).list();
+      expect(files).toContain('SKILL.md');
+      expect(files).not.toContain('link.md');
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
   });
 });

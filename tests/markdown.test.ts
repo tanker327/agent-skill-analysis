@@ -77,6 +77,11 @@ describe('ATX heading depths', () => {
       { depth: 1, text: 'No newline at EOF' },
     ]);
   });
+
+  it('heading marker followed by only whitespace is NOT a heading', () => {
+    // `# ` + spaces: HEADING_RE matches but stripHeadingTrail leaves empty text.
+    expect(extractHeadings('#   \n')).toEqual([]);
+  });
 });
 
 // ── Fenced code block suppression (F2) ───────────────────────────────────────
@@ -114,6 +119,12 @@ describe('fenced code block suppression (F2 — only fences suppress, not inline
     // Fence opens but never closes — all content including headings is suppressed
     const text = '# Before fence\n\n```\n# Inside unclosed fence — suppressed\n# Also suppressed\n';
     expect(extractHeadings(text)).toEqual([{ depth: 1, text: 'Before fence' }]);
+  });
+
+  it('a closing fence indented 4+ spaces does NOT close the fence', () => {
+    // Spec §4.5: a closing fence may be indented at most 3 spaces — 4+ is content.
+    const text = '```\n    ```\n# still suppressed\n```\n# After\n';
+    expect(extractHeadings(text)).toEqual([{ depth: 1, text: 'After' }]);
   });
 
   it('nested-looking backtick run: fence opened with ``` closes with ```', () => {

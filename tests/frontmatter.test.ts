@@ -165,6 +165,13 @@ describe('normalizeFrontmatter', () => {
     const fm = normalizeFrontmatter({ 'allowed-tools': [42, true] }, collector);
     expect(fm.allowedTools).toBeNull();
   });
+
+  it('allowed-tools as a whitespace-only string → allowedTools is null', () => {
+    // trim + split leaves no parts; an empty result is treated as absent.
+    const collector = new DiagnosticCollector();
+    const fm = normalizeFrontmatter({ 'allowed-tools': '   ' }, collector);
+    expect(fm.allowedTools).toBeNull();
+  });
 });
 
 describe('validateFrontmatter', () => {

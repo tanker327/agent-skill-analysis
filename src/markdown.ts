@@ -118,8 +118,8 @@ function extractLinkTargets(line: string): string[] {
   LINK_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = LINK_RE.exec(line)) !== null) {
-    const target = group(m, 1);
-    if (target.length > 0) targets.push(target);
+    // Group 1 is ([^)]+) — a successful match is never empty, so push directly.
+    targets.push(group(m, 1));
   }
   return targets;
 }
@@ -134,9 +134,9 @@ function extractInlineCode(line: string): string[] {
   let m: RegExpExecArray | null;
   while ((m = INLINE_CODE_RE.exec(line)) !== null) {
     // Group 1 = double-backtick content; group 2 = single-backtick content.
-    // Both groups use [^`]+ so the '' fallback from group() signals "didn't match".
-    const content = group(m, 1) || group(m, 2);
-    if (content.length > 0) items.push(content);
+    // Both groups use [^`]+ so the '' fallback from group() signals "didn't match" —
+    // whichever alternative matched is non-empty, so the || result always is too.
+    items.push(group(m, 1) || group(m, 2));
   }
   return items;
 }
