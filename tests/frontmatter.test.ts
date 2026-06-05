@@ -443,6 +443,10 @@ describe('frontmatter extra keys (Claude Code extension keys)', () => {
           '',
           'Body.',
         ].join('\n'),
+        // README and LICENSE present so P3 docs codes are not emitted — this
+        // test is about frontmatter extension keys, not docs detection.
+        'README.md': '# CC Skill\n\nReadme.',
+        LICENSE: 'MIT License\n\nCopyright (c) 2026 test',
       }),
     );
     // All extension keys must be in extra

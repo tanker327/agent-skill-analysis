@@ -112,11 +112,13 @@ const NO_FRONTMATTER_FILES = {
  *     name-invalid, name-dir-mismatch, description-too-long, compatibility-too-long,
  *     metadata-non-string, version-missing, allowed-tools-experimental
  *     (name-reserved is 'off'-exempt — covered via rules-override in P6 task #20)
- * P2: body-too-long (> 4000 tokens at approx-chars-4 → > 16000 chars),
- *     body-too-many-lines (> 500 lines)
- *     Fixtures inline-compute the body sizes from the settled thresholds;
- *     refactor to import BODY_TOKEN_LIMIT/BODY_LINE_LIMIT from src/body.ts
- *     once that module exists (avoids breaking 20 passing tests during TDD).
+ * P2: body-too-long (tokens > BODY_TOKEN_LIMIT),
+ *     body-too-many-lines (lines > BODY_LINE_LIMIT)
+ *     Fixture sizes are computed from the imported constants so threshold
+ *     changes propagate automatically.
+ * P3: readme-missing (covered by multiple fixtures lacking README.md),
+ *     license-missing (covered by multiple fixtures lacking LICENSE + no frontmatter.license),
+ *     license-file-missing (frontmatter.license set, no LICENSE file)
  */
 const COVERAGE_FIXTURES: Array<{
   label: string;
@@ -210,6 +212,21 @@ const COVERAGE_FIXTURES: Array<{
           .join('\n'),
     },
   },
+
+  // ── P3 docs detection ──────────────────────────────────────────────────────
+  // license-file-missing: frontmatter.license is set but no LICENSE file exists.
+  // README.md is present so only license-file-missing fires (not readme-missing).
+  {
+    label: 'license-file-missing (→ license-file-missing)',
+    files: {
+      'SKILL.md':
+        '---\nname: lic-declared\ndescription: y.\nmetadata:\n  version: "1.0.0"\nlicense: MIT\n---\n\nBody.',
+      'README.md': '# Readme',
+    },
+  },
+  // readme-missing and license-missing are already covered by many fixtures
+  // above (minimal-skill, bad-yaml, no-frontmatter, long-name, etc. — all lack
+  // README/LICENSE files and have no frontmatter.license).
 ];
 
 // ── 1 & 2. Determinism ─────────────────────────────────────────────────────────

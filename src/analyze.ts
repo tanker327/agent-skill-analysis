@@ -6,6 +6,7 @@
  */
 import { analyzeBody } from './body.js';
 import { compareDiagnostics, DiagnosticCollector } from './diagnostics.js';
+import { detectLicense, detectReadme } from './docs.js';
 import { parseFrontmatterFromText } from './frontmatter.js';
 import {
   ANALYZER_VERSION,
@@ -114,6 +115,10 @@ export async function analyze(
     .join(' ');
   const metadataTokens = tokenizer.count(metadataText);
 
+  // Stages ⑦–⑧: README + LICENSE/SPDX detection (P3).
+  const readme = await detectReadme(paths, source, collector);
+  const license = await detectLicense(paths, frontmatter, source, collector);
+
   // Policy resolution (superseded by finalize.ts in P6): translate raw
   // diagnostics to output Diagnostics, skipping 'off'-severity entries and
   // threading the optional `field` through.
@@ -140,8 +145,8 @@ export async function analyze(
     dir,
     frontmatter,
     body,
-    readme: null,
-    license: { declared: null, spdx: null, file: null, text: null, source: null },
+    readme,
+    license,
     files: [],
     tokens: {
       metadata: metadataTokens,

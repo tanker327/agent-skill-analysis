@@ -105,6 +105,23 @@ export const DIAGNOSTIC_REGISTRY = {
     message: 'SKILL.md body exceeds the recommended line count.',
     hint: 'Move detail into references/ files that agents load on demand (progressive disclosure).',
   },
+
+  // ── P3 · README / LICENSE detection (stages ⑦⑧) — soft advisory, file-level ──
+  'readme-missing': {
+    defaultSeverity: 'warning',
+    message: 'No README found in the skill folder.',
+    hint: 'Add a README.md to make the skill page readable.',
+  },
+  'license-missing': {
+    defaultSeverity: 'warning',
+    message: 'No license declaration or LICENSE file found.',
+    hint: 'Add a LICENSE file or set frontmatter.license.',
+  },
+  'license-file-missing': {
+    defaultSeverity: 'warning',
+    message: 'Frontmatter declares a license but no LICENSE file was found.',
+    hint: 'Add a LICENSE file to match the frontmatter.license declaration.',
+  },
 } as const satisfies Record<string, DiagnosticSpec>;
 
 export type DiagnosticCode = keyof typeof DIAGNOSTIC_REGISTRY;

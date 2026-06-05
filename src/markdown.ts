@@ -90,8 +90,8 @@ export interface MarkdownScan {
  * One annotation here rather than one per call site; P4's reference extraction
  * will reuse the same helper.
  */
-/* v8 ignore next -- ?? '' unreachable: called only after a successful match where group i is mandatory */
 function group(m: RegExpExecArray, i: number): string {
+  /* v8 ignore next -- ?? '' unreachable: called only after a successful match where group i is mandatory (noUncheckedIndexedAccess) */
   return m[i] ?? '';
 }
 
