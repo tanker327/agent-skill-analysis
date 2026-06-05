@@ -168,7 +168,11 @@ async function computeSkillMdContentHash(skillMdText: string): Promise<string> {
       // projectJsonSafe breaks any cyclic YAML anchor references so that
       // canonicalJSON never encounters a circular object (consistent with
       // how parseFrontmatterFromText projects the same parse at stage ③).
-      rawFrontmatter = projectJsonSafe((parseYaml(yamlBlock) as unknown) ?? {});
+      // logLevel 'error' (matches stage ③): silences process.emitWarning for
+      // non-fatal YAML issues; parse results and error-throwing are unchanged.
+      rawFrontmatter = projectJsonSafe(
+        (parseYaml(yamlBlock, { logLevel: 'error' }) as unknown) ?? {},
+      );
     } catch {
       // Unparseable YAML → best-effort empty object; pipeline already emits
       // frontmatter-parse diagnostic for this case.

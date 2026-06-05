@@ -334,7 +334,12 @@ export function parseFrontmatterFromText(
       // cyclic YAML anchor references (e.g. `a: &x\n  b: *x`) before the raw
       // object reaches normalizeFrontmatter or frontmatter.extra — both of
       // which must be JSON-serializable. Non-cyclic shared anchors are cloned.
-      const parsed = projectJsonSafe(parseYaml(yamlBlock) as unknown);
+      // logLevel 'error': non-fatal YAML issues (unknown %directives, unresolved
+      // !tags) default to logLevel 'warn', which side-effects process.emitWarning —
+      // a content-triggered emission on the consumer's process. 'error' silences
+      // warnings while parse errors still throw (only 'silent' suppresses those),
+      // so the frontmatter-parse diagnostic path below is unchanged.
+      const parsed = projectJsonSafe(parseYaml(yamlBlock, { logLevel: 'error' }) as unknown);
       if (
         parsed !== null &&
         parsed !== undefined &&

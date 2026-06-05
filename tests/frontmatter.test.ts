@@ -329,6 +329,30 @@ describe('parseFrontmatterFromText', () => {
     expect(emittedCodes).toContain('name-missing');
     expect(emittedCodes).toContain('description-missing');
   });
+
+  // Regression: yaml's default logLevel 'warn' routes non-fatal parse issues
+  // (unknown %directives, unresolved !tags) to process.emitWarning — a
+  // content-triggered side effect on the consumer's process. Both yaml.parse
+  // call sites (stage ③ in frontmatter.ts and the digest re-parse in digest.ts)
+  // use logLevel 'error', so pathological-but-parseable YAML must stay silent.
+  // Goes through analyze() so the full pipeline (both call sites) is covered.
+  it('does not emit process warnings for unknown YAML directives or tags', async () => {
+    const yamlWarnings: Error[] = [];
+    const onWarning = (warning: Error): void => {
+      if (warning.name === 'YAMLWarning') yamlWarnings.push(warning);
+    };
+    process.on('warning', onWarning);
+    try {
+      for (const block of ['%FOO\n', '!unknown-tag x\n']) {
+        await analyze(mem({ 'SKILL.md': `---\n${block}---\n\nBody.` }));
+      }
+      // process.emitWarning delivers the 'warning' event asynchronously — flush it.
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      process.off('warning', onWarning);
+    }
+    expect(yamlWarnings).toEqual([]);
+  });
 });
 
 // ── 1. Normalization — field extraction ────────────────────────────────────────
