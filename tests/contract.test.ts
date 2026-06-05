@@ -25,6 +25,7 @@ import {
   SkillAnalysisSchema,
   DIAGNOSTIC_REGISTRY,
   ANALYZER_VERSION,
+  type AnalyzeOptions,
   type SkillSource,
 } from '../src/index.js';
 import { BODY_TOKEN_LIMIT, BODY_LINE_LIMIT } from '../src/body.js';
@@ -119,12 +120,17 @@ const NO_FRONTMATTER_FILES = {
  * P3: readme-missing (covered by multiple fixtures lacking README.md),
  *     license-missing (covered by multiple fixtures lacking LICENSE + no frontmatter.license),
  *     license-file-missing (frontmatter.license set, no LICENSE file)
+ * P4: broken-ref (body links to a path not in files[]),
+ *     orphan-file (covered by full-skill: scripts/run.py is present but unreferenced),
+ *     file-too-large (options.maxFileBytes set; one file exceeds it)
  */
 const COVERAGE_FIXTURES: Array<{
   label: string;
   files: Record<string, string>;
   /** Optional override source — used when a dir-bearing SkillSource is required. */
   source?: SkillSource;
+  /** Optional analyze options — used when a fixture needs e.g. maxFileBytes (P4 F4). */
+  options?: AnalyzeOptions;
 }> = [
   // ── P0 baseline ────────────────────────────────────────────────────────────
   // minimal-skill has no metadata block → emits version-missing
@@ -227,6 +233,37 @@ const COVERAGE_FIXTURES: Array<{
   // readme-missing and license-missing are already covered by many fixtures
   // above (minimal-skill, bad-yaml, no-frontmatter, long-name, etc. — all lack
   // README/LICENSE files and have no frontmatter.license).
+
+  // ── P4 manifest + reference graph ─────────────────────────────────────────
+  // broken-ref: body links to a path that does not exist in the manifest.
+  // README + LICENSE present so only broken-ref fires (not readme-missing etc.).
+  {
+    label: 'broken-ref (→ broken-ref)',
+    files: {
+      'SKILL.md':
+        '---\nname: broken-ref-skill\ndescription: y.\nmetadata:\n  version: "1.0.0"\n---\n\n' +
+        'See [guide](references/nonexistent.md) for details.',
+      'README.md': '# Readme',
+      LICENSE: 'MIT License\n\nCopyright (c) 2026 test',
+    },
+  },
+  // orphan-file: covered by full-skill above — scripts/run.py exists but is
+  // not referenced anywhere in the SKILL.md body.
+
+  // file-too-large: options.maxFileBytes set; references/large.md (500 bytes)
+  // exceeds the limit (200). README (3 bytes) and LICENSE (23 bytes) fit.
+  // SKILL.md (~78 bytes) fits, so it is still parsed and frontmatter is valid.
+  {
+    label: 'file-too-large (→ file-too-large)',
+    files: {
+      'SKILL.md':
+        '---\nname: big-file-skill\ndescription: y.\nmetadata:\n  version: "1.0.0"\n---\n\nBody.',
+      'README.md': '# R',
+      LICENSE: 'MIT License\n\nCopyright (c) 2026 test',
+      'references/large.md': 'x'.repeat(500), // 500 bytes > maxFileBytes (200)
+    },
+    options: { maxFileBytes: 200 },
+  },
 ];
 
 // ── 1 & 2. Determinism ─────────────────────────────────────────────────────────
@@ -259,7 +296,7 @@ describe('schema conformance', () => {
     it(`${f.label} → output passes SkillAnalysisSchema.parse()`, async () => {
       // Use f.source when provided (e.g. dir-bearing source for name-dir-mismatch);
       // otherwise fall back to the mem() helper.
-      const result = await analyze(f.source ?? mem(f.files));
+      const result = await analyze(f.source ?? mem(f.files), f.options);
       // parse() throws ZodError on mismatch — message describes the failing field
       expect(() => SkillAnalysisSchema.parse(result)).not.toThrow();
     });
@@ -272,7 +309,7 @@ describe('diagnostic vocabulary', () => {
   it('registered ⊆ emitted AND emitted ⊆ registered (symmetric vocabulary check)', async () => {
     const emitted = new Set<string>();
     for (const f of COVERAGE_FIXTURES) {
-      const result = await analyze(f.source ?? mem(f.files));
+      const result = await analyze(f.source ?? mem(f.files), f.options);
       for (const d of result.diagnostics) {
         emitted.add(d.code);
       }

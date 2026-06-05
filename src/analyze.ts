@@ -8,6 +8,8 @@ import { analyzeBody } from './body.js';
 import { compareDiagnostics, DiagnosticCollector } from './diagnostics.js';
 import { detectLicense, detectReadme } from './docs.js';
 import { parseFrontmatterFromText } from './frontmatter.js';
+import { buildManifest } from './manifest.js';
+import { analyzeReferences } from './references.js';
 import {
   ANALYZER_VERSION,
   AnalyzeOptionsSchema,
@@ -118,6 +120,23 @@ export async function analyze(
   // Stages ⑦–⑧: README + LICENSE/SPDX detection (P3).
   const readme = await detectReadme(paths, source, collector);
   const license = await detectLicense(paths, frontmatter, source, collector);
+  const readmePath = readme?.path ?? null;
+  const licensePath = license.file;
+
+  // Stage ⑨: per-file manifest — sha256, kind, isText, size (P4).
+  const manifest = await buildManifest(
+    paths,
+    source,
+    readmePath,
+    licensePath,
+    opts.maxFileBytes,
+    collector,
+  );
+
+  // Stage ⑩: reference graph — declared/resolved/broken/orphans (P4).
+  // Pass the full post-ignore path list (stage ①) so that over-limit files
+  // (absent from manifest.files) still resolve correctly when linked from body.
+  const references = analyzeReferences(bodyText, paths, readmePath, licensePath, collector);
 
   // Policy resolution (superseded by finalize.ts in P6): translate raw
   // diagnostics to output Diagnostics, skipping 'off'-severity entries and
@@ -147,15 +166,15 @@ export async function analyze(
     body,
     readme,
     license,
-    files: [],
+    files: manifest.files,
     tokens: {
       metadata: metadataTokens,
       body: bodyTokens,
       total: metadataTokens + bodyTokens,
       tokenizer: tokenizer.name,
     },
-    references: { declared: [], resolved: [], broken: [], orphans: [] },
-    size: { total: 0, byKind: {} },
+    references,
+    size: manifest.size,
     digest: EMPTY_DIGEST,
     diagnostics,
   };

@@ -122,6 +122,25 @@ export const DIAGNOSTIC_REGISTRY = {
     message: 'Frontmatter declares a license but no LICENSE file was found.',
     hint: 'Add a LICENSE file to match the frontmatter.license declaration.',
   },
+
+  // ── P4 · manifest + reference graph (stages ⑨⑩) ──
+  'broken-ref': {
+    // Link-target parsing has known false positives (example paths in prose) → warning only (F3).
+    defaultSeverity: 'warning',
+    message: 'Referenced path does not exist in the skill.',
+    hint: 'Fix the path or remove the reference from SKILL.md.',
+  },
+  'orphan-file': {
+    defaultSeverity: 'warning',
+    message: 'File is present but not referenced from SKILL.md.',
+    hint: 'Reference it from SKILL.md or remove it to keep the skill lean.',
+  },
+  'file-too-large': {
+    // F4: over-limit files are skipped from hashing, but NEVER silently.
+    defaultSeverity: 'warning',
+    message: 'File exceeds the maxFileBytes limit and was excluded from the manifest.',
+    hint: 'Raise options.maxFileBytes or shrink the file.',
+  },
 } as const satisfies Record<string, DiagnosticSpec>;
 
 export type DiagnosticCode = keyof typeof DIAGNOSTIC_REGISTRY;
