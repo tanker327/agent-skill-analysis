@@ -80,6 +80,20 @@ const analysis = await analyze(source, {
 
 **Severity is policy, not mechanism**: pipeline stages emit codes with library-default severities; your `rules` overrides are applied at the end, and `ok` is computed _after_ them. Promoting a warning to `error` flips `ok`; `'off'` removes the diagnostic entirely.
 
+### CLI
+
+The package ships an `asa` bin (Node only — it goes through `fromDir`):
+
+```bash
+asa ./my-skill          # pretty view: status, summary, body outline, files,
+                        # references, diagnostics
+asa ./my-skill --json   # the raw SkillAnalysis JSON (2-space indent), exactly
+                        # as analyze() returns it
+asa                     # no argument: analyzes the current directory
+```
+
+Exit codes: `0` analyzed and `ok`, `1` analyzed but not `ok` (error-severity diagnostics remain), `2` usage or IO error. ANSI colors appear only on a TTY and respect [`NO_COLOR`](https://no-color.org); the `--json` output is the untouched contract — the pretty view is presentation only.
+
 ## Tokens
 
 `tokens` quantifies the progressive-disclosure cost of the skill in three layers:

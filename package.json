@@ -85,5 +85,8 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.60.1",
     "vitest": "^4.1.8"
+  },
+  "bin": {
+    "asa": "./dist/cli-entry.js"
   }
 }

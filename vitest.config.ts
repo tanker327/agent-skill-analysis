@@ -6,8 +6,11 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**'],
-      // Barrel file — no logic, just re-exports; excluded from per-file enforcement.
-      exclude: ['src/index.ts'],
+      // Excluded from per-file enforcement:
+      //   index.ts — barrel, no logic, just re-exports.
+      //   cli-entry.ts — bin shim, no logic, just process wiring around
+      //   runCli (cli.ts carries the testable CLI logic at 100%).
+      exclude: ['src/index.ts', 'src/cli-entry.ts'],
       thresholds: {
         lines: 100,
         branches: 100,

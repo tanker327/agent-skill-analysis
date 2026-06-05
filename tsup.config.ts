@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/node.ts'],
+  entry: ['src/index.ts', 'src/node.ts', 'src/cli-entry.ts'],
   format: ['esm', 'cjs'],
   // tsup injects a deprecated `baseUrl` into its dts compiler options; TS 6
   // errors on it (TS5101) unless deprecations are explicitly acknowledged.
