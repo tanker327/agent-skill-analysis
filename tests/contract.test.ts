@@ -21,9 +21,11 @@ import { describe, expect, it } from 'vitest';
 import packageJson from '../package.json';
 import {
   analyze,
+  fromFiles,
   SkillAnalysisSchema,
   DIAGNOSTIC_REGISTRY,
   ANALYZER_VERSION,
+  type SkillSource,
 } from '../src/index.js';
 import { mem, memReversed } from './helpers.js';
 
@@ -96,23 +98,88 @@ const NO_FRONTMATTER_FILES = {
  * Fixtures used for schema conformance + diagnostic vocabulary coverage.
  *
  * Expand this array as each phase adds new diagnostic codes.
- * Each entry must cover every code it "promises" to emit.
+ * Each entry must cover every code it "promises" to emit (shown in the label
+ * as "→ code1, code2"). The symmetric vocab test enforces both directions:
+ *   forward:  every registered non-'off' code is emitted by ≥1 fixture
+ *   reverse:  every emitted code exists in DIAGNOSTIC_REGISTRY
  *
- * P0: baseline skeleton fixtures
- * P1: frontmatter-chain fixtures (bad YAML, no frontmatter, etc.) — see frontmatter.test.ts
- *     for the full P1 fixture suite; entries here cover only the codes needed for the
- *     cross-cutting vocabulary meta-test.
+ * Most fixtures use `files` (passed through mem()). Fixtures that need a
+ * dir-bearing source set `source` directly — the loops use `f.source ?? mem(f.files)`.
+ *
+ * P0: no-skill-md
+ * P1: frontmatter-parse, name-missing, description-missing, name-too-long,
+ *     name-invalid, name-dir-mismatch, description-too-long, compatibility-too-long,
+ *     metadata-non-string, version-missing, allowed-tools-experimental
+ *     (name-reserved is 'off'-exempt — covered via rules-override in P6 task #20)
  */
-const COVERAGE_FIXTURES: Array<{ label: string; files: Record<string, string> }> = [
-  // P0 baseline
-  { label: 'minimal-skill', files: MINIMAL_SKILL_FILES },
-  { label: 'full-skill', files: FULL_SKILL_FILES },
+const COVERAGE_FIXTURES: Array<{
+  label: string;
+  files: Record<string, string>;
+  /** Optional override source — used when a dir-bearing SkillSource is required. */
+  source?: SkillSource;
+}> = [
+  // ── P0 baseline ────────────────────────────────────────────────────────────
+  // minimal-skill has no metadata block → emits version-missing
+  { label: 'minimal-skill (→ version-missing)', files: MINIMAL_SKILL_FILES },
+  // full-skill has allowed-tools → emits allowed-tools-experimental
+  { label: 'full-skill (→ allowed-tools-experimental)', files: FULL_SKILL_FILES },
   { label: 'empty-tree (→ no-skill-md)', files: EMPTY_TREE_FILES },
-  // These two stay as schema-conformance / never-throw fixtures at P0.
-  // Labels will grow to include code promises (e.g. "→ frontmatter-parse") once
-  // those codes are registered in P1 and emitted by these trees.
-  { label: 'bad-yaml', files: BAD_YAML_FILES },
-  { label: 'no-frontmatter', files: NO_FRONTMATTER_FILES },
+
+  // ── P1 frontmatter-chain ───────────────────────────────────────────────────
+  { label: 'bad-yaml (→ frontmatter-parse)', files: BAD_YAML_FILES },
+  { label: 'no-frontmatter (→ name-missing, description-missing)', files: NO_FRONTMATTER_FILES },
+
+  // name-too-long: name exceeds 64 characters
+  {
+    label: 'long-name (→ name-too-long)',
+    files: {
+      'SKILL.md': `---\nname: ${'a'.repeat(65)}\ndescription: y.\nmetadata:\n  version: "1.0.0"\n---\nBody.`,
+    },
+  },
+  // name-invalid: charset violation (underscore is not allowed)
+  {
+    label: 'invalid-name (→ name-invalid)',
+    files: {
+      'SKILL.md': '---\nname: bad_name\ndescription: y.\nmetadata:\n  version: "1.0.0"\n---\nBody.',
+    },
+  },
+  // name-dir-mismatch: skill name doesn't match the source dir basename.
+  // Uses fromFiles with { dir } so source.dir is set.
+  {
+    label: 'dir-mismatch (→ name-dir-mismatch)',
+    files: {},
+    source: fromFiles(
+      {
+        'SKILL.md':
+          '---\nname: skill-a\ndescription: y.\nmetadata:\n  version: "1.0.0"\n---\nBody.',
+      },
+      { dir: 'skill-b' },
+    ),
+  },
+  // description-too-long: description exceeds 1024 characters
+  {
+    label: 'long-description (→ description-too-long)',
+    files: {
+      'SKILL.md': `---\nname: longdesc\ndescription: "${'x'.repeat(1025)}"\nmetadata:\n  version: "1.0.0"\n---\nBody.`,
+    },
+  },
+  // compatibility-too-long: compatibility exceeds 500 characters — severity WARNING (soft limit
+  // on free text; settled per architect's approved registry table, confirmed by team-lead).
+  {
+    label: 'long-compatibility (→ compatibility-too-long)',
+    files: {
+      'SKILL.md': `---\nname: longcompat\ndescription: y.\ncompatibility: "${'y'.repeat(501)}"\nmetadata:\n  version: "1.0.0"\n---\nBody.`,
+    },
+  },
+  // metadata-non-string: a metadata value is not a string — severity ERROR per output doc §5
+  // (non-string value is a spec violation; values are stringified in output, ok=false).
+  {
+    label: 'non-string-metadata (→ metadata-non-string)',
+    files: {
+      'SKILL.md':
+        '---\nname: meta-skill\ndescription: y.\nmetadata:\n  version: "1.0.0"\n  count: 42\n---\nBody.',
+    },
+  },
 ];
 
 // ── 1 & 2. Determinism ─────────────────────────────────────────────────────────
@@ -141,9 +208,11 @@ describe('determinism', () => {
 // ── 3. Schema conformance ──────────────────────────────────────────────────────
 
 describe('schema conformance', () => {
-  for (const { label, files } of COVERAGE_FIXTURES) {
-    it(`${label} → output passes SkillAnalysisSchema.parse()`, async () => {
-      const result = await analyze(mem(files));
+  for (const f of COVERAGE_FIXTURES) {
+    it(`${f.label} → output passes SkillAnalysisSchema.parse()`, async () => {
+      // Use f.source when provided (e.g. dir-bearing source for name-dir-mismatch);
+      // otherwise fall back to the mem() helper.
+      const result = await analyze(f.source ?? mem(f.files));
       // parse() throws ZodError on mismatch — message describes the failing field
       expect(() => SkillAnalysisSchema.parse(result)).not.toThrow();
     });
@@ -155,16 +224,27 @@ describe('schema conformance', () => {
 describe('diagnostic vocabulary', () => {
   it('registered ⊆ emitted AND emitted ⊆ registered (symmetric vocabulary check)', async () => {
     const emitted = new Set<string>();
-    for (const { files } of COVERAGE_FIXTURES) {
-      const result = await analyze(mem(files));
+    for (const f of COVERAGE_FIXTURES) {
+      const result = await analyze(f.source ?? mem(f.files));
       for (const d of result.diagnostics) {
         emitted.add(d.code);
       }
     }
 
-    const registeredCodes = Object.keys(DIAGNOSTIC_REGISTRY);
+    // Codes with defaultSeverity 'off' are suppressed from output by default;
+    // the only way to surface them is via options.rules override (a finalize / P6
+    // concern).  Exempt them from the forward direction so the vocab test stays
+    // green at P1 when name-reserved registers with 'off' — it won't appear in
+    // any fixture's output until finalize.ts lands in P6 and task #20 adds the
+    // rules-override fixture to this COVERAGE_FIXTURES list.
+    // The reverse direction is NOT exempted: if a fixture somehow emits an 'off'
+    // code it must still exist in DIAGNOSTIC_REGISTRY (catches typos and forward-
+    // of-phase promises equally).
+    const registeredCodes = Object.entries(DIAGNOSTIC_REGISTRY)
+      .filter(([, spec]) => spec.defaultSeverity !== 'off')
+      .map(([code]) => code);
 
-    // Forward: every registered code must be emitted by at least one fixture.
+    // Forward: every registered (non-off) code must be emitted by at least one fixture.
     // Fails when a code is added to the registry without a corresponding fixture.
     const uncovered = registeredCodes.filter((code) => !emitted.has(code));
     if (uncovered.length > 0) {

@@ -26,10 +26,72 @@ export interface DiagnosticSpec {
 }
 
 export const DIAGNOSTIC_REGISTRY = {
+  // ── P0 · enumerate ──
   'no-skill-md': {
     defaultSeverity: 'error',
     message: 'No SKILL.md found at the skill root.',
     hint: 'Every skill needs a SKILL.md file at the root of its folder.',
+  },
+
+  // ── P1 · frontmatter parse (stage ③) ──
+  'frontmatter-parse': {
+    defaultSeverity: 'error',
+    message: 'SKILL.md frontmatter is not valid YAML.',
+    hint: 'Fix the YAML between the opening and closing --- fences.',
+  },
+
+  // ── P1 · frontmatter validation (stage ⑤) ──
+  'name-missing': {
+    defaultSeverity: 'error',
+    message: 'Frontmatter is missing the required "name" field.',
+  },
+  'name-too-long': {
+    defaultSeverity: 'error',
+    message: 'Frontmatter "name" exceeds the 64-character limit.',
+  },
+  'name-invalid': {
+    defaultSeverity: 'error',
+    message:
+      'Frontmatter "name" must be lowercase letters, digits, and hyphens — no leading, trailing, or consecutive hyphens.',
+  },
+  'name-reserved': {
+    // Suppressed by default; consumers opt in via options.rules.
+    defaultSeverity: 'off',
+    message: 'Frontmatter "name" is a reserved word.',
+    hint: 'Choose a different skill name.',
+  },
+  'name-dir-mismatch': {
+    // Skipped entirely when the source has no directory name (dir = null).
+    defaultSeverity: 'warning',
+    message: 'Frontmatter "name" does not match the skill folder name.',
+    hint: 'Rename the folder or the skill so they match.',
+  },
+  'description-missing': {
+    defaultSeverity: 'error',
+    message: 'Frontmatter is missing the required "description" field.',
+  },
+  'description-too-long': {
+    defaultSeverity: 'error',
+    message: 'Frontmatter "description" exceeds the 1024-character limit.',
+  },
+  'compatibility-too-long': {
+    // Soft limit on a free-text field, not a spec violation → warning.
+    defaultSeverity: 'warning',
+    message: 'Frontmatter "compatibility" exceeds the 500-character limit.',
+  },
+  'metadata-non-string': {
+    defaultSeverity: 'error',
+    message: 'Frontmatter "metadata" values must be strings.',
+    hint: 'Quote the value in YAML; the analyzer stringified it best-effort.',
+  },
+  'version-missing': {
+    defaultSeverity: 'warning',
+    message: 'Frontmatter "metadata.version" is not set.',
+    hint: 'Add metadata.version so consumers can track releases.',
+  },
+  'allowed-tools-experimental': {
+    defaultSeverity: 'warning',
+    message: 'allowed-tools is experimental and support varies across agents.',
   },
 } as const satisfies Record<string, DiagnosticSpec>;
 
@@ -75,7 +137,7 @@ export class DiagnosticCollector {
       message: overrides?.message ?? spec.message,
     };
     if (overrides?.field !== undefined) item.field = overrides.field;
-    const hint = overrides?.hint ?? spec.hint;
+    const hint = overrides?.hint ?? ('hint' in spec ? spec.hint : undefined);
     if (hint !== undefined) item.hint = hint;
     this.items.push(item);
   }

@@ -5,6 +5,7 @@
  * P1–P5; finalize policy lands in P6.
  */
 import { compareDiagnostics, DiagnosticCollector } from './diagnostics.js';
+import { parseFrontmatterFromText } from './frontmatter.js';
 import {
   ANALYZER_VERSION,
   AnalyzeOptionsSchema,
@@ -12,6 +13,7 @@ import {
   SPEC_VERSION,
   type AnalyzeOptions,
   type Diagnostic,
+  type Frontmatter,
   type SkillAnalysis,
 } from './schema.js';
 import type { SkillSource } from './source.js';
@@ -60,19 +62,58 @@ export async function analyze(
   const paths = (await source.list()).filter((p) => !isIgnored(p, ignore)).sort();
 
   const collector = new DiagnosticCollector();
+  const dir = source.dir ?? null;
+
+  // Stages ②–⑤: SKILL.md chain (P1).
+  const EMPTY_FRONTMATTER: Frontmatter = {
+    name: null,
+    description: null,
+    version: null,
+    license: null,
+    compatibility: null,
+    allowedTools: null,
+    metadata: null,
+    extra: {},
+  };
+
+  let frontmatter: Frontmatter = EMPTY_FRONTMATTER;
+  let bodyText: string | null = null;
+
   if (!paths.includes('SKILL.md')) {
+    // Stage ②: SKILL.md absent — emit no-skill-md, skip ③④⑤ (flow §6 row 1).
     collector.emit('no-skill-md');
+  } else {
+    // Stage ②: read + UTF-8 decode (fatal:false → invalid bytes → replacement chars).
+    const bytes = await source.read('SKILL.md');
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    // Stages ③④⑤: split / normalize / validate.
+    const parsed = parseFrontmatterFromText(text, dir, collector);
+    frontmatter = parsed.frontmatter;
+    bodyText = parsed.body;
   }
 
-  // P0 policy resolution (superseded by finalize.ts in P6): fixed sort,
-  // ok = no errors. Two P1 behaviors are deliberately absent until the codes
-  // that exercise them register: the default-"off" filter (name-reserved) —
-  // which the compiler will demand back, because RegisteredDefaultSeverity
-  // widens to include 'off' (see diagnostics.ts) — and the `field`
-  // passthrough (frontmatter codes), which the P1 diagnostic fixtures assert.
+  // Stub body object for P1 boundary — lines/headings refined in P2 (body.ts).
+  const body =
+    bodyText !== null
+      ? {
+          text: bodyText,
+          lines: bodyText.length === 0 ? 0 : bodyText.split('\n').length,
+          headings: [] as { depth: number; text: string }[],
+        }
+      : null;
+
+  // Policy resolution (superseded by finalize.ts in P6): translate raw
+  // diagnostics to output Diagnostics, skipping 'off'-severity entries and
+  // threading the optional `field` through.
   const diagnostics: Diagnostic[] = [];
   for (const raw of collector.all()) {
+    // 'off' entries are suppressed by default; consumers may enable them via
+    // options.rules in P6 finalize. The 'off' branch is required here because
+    // name-reserved (registered P1) widens RegisteredDefaultSeverity to include
+    // 'off', making the assignment to Diagnostic.severity ill-typed without it.
+    if (raw.severity === 'off') continue;
     const diag: Diagnostic = { code: raw.code, severity: raw.severity, message: raw.message };
+    if (raw.field !== undefined) diag.field = raw.field;
     if (raw.hint !== undefined) diag.hint = raw.hint;
     diagnostics.push(diag);
   }
@@ -84,18 +125,9 @@ export async function analyze(
     analyzerVersion: ANALYZER_VERSION,
     specVersion: SPEC_VERSION,
     ok,
-    dir: source.dir ?? null,
-    frontmatter: {
-      name: null,
-      description: null,
-      version: null,
-      license: null,
-      compatibility: null,
-      allowedTools: null,
-      metadata: null,
-      extra: {},
-    },
-    body: null,
+    dir,
+    frontmatter,
+    body,
     readme: null,
     license: { declared: null, spdx: null, file: null, text: null, source: null },
     files: [],
