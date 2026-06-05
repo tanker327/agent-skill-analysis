@@ -15,7 +15,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 - Body: **required for any non-trivial commit** (wrap at 100 characters). The git log is our changelog, so the body must be detailed enough to understand the change without reading the diff:
   - **What changed** — the concrete edits: files/modules touched, behavior added/removed/altered, schema or diagnostic codes changed. Use a bullet list when more than one thing changed.
   - **Why** — the reason or problem being solved, so a future reader understands intent, not just mechanics.
-- **Branch context**: if this commit is one of several on a feature branch, add a line explaining what *this* commit contributes toward the branch's overall goal.
+- **Branch context**: if this commit is one of several on a feature branch, add a line explaining what _this_ commit contributes toward the branch's overall goal.
 - Footer: reference the build-plan phase (P0–P6, see `global_ignore/skl-skill-analysis-plan.md`) and/or the design doc that motivated the change, if applicable
 - Every commit Claude makes ends with a `Co-Authored-By: Claude … <noreply@anthropic.com>` trailer (the harness supplies the exact model name)
 
@@ -23,24 +23,25 @@ Trivial commits (a typo fix, a formatting-only change, a dependency bump) may us
 
 ## Types
 
-| Type | When to use |
-|---|---|
-| `feat` | New capability: a pipeline stage, a diagnostic code, a SkillSource, an exported API |
-| `fix` | Bug fix |
-| `test` | Adding or updating tests/fixtures only |
-| `arch` | Contract changes: `SkillAnalysisSchema` shape, `schemaVersion` bump, digest definition, JSON Schema artifact, CI gate |
-| `chore` | Dependencies, tooling, config (tsup, vitest, eslint, prettier, tsconfig) |
-| `docs` | Documentation only (README, CHANGELOG, design docs) — no code change |
-| `refactor` | Code restructure with no behavior change |
+| Type       | When to use                                                                                                           |
+| ---------- | --------------------------------------------------------------------------------------------------------------------- |
+| `feat`     | New capability: a pipeline stage, a diagnostic code, a SkillSource, an exported API                                   |
+| `fix`      | Bug fix                                                                                                               |
+| `test`     | Adding or updating tests/fixtures only                                                                                |
+| `arch`     | Contract changes: `SkillAnalysisSchema` shape, `schemaVersion` bump, digest definition, JSON Schema artifact, CI gate |
+| `chore`    | Dependencies, tooling, config (tsup, vitest, eslint, prettier, tsconfig)                                              |
+| `docs`     | Documentation only (README, CHANGELOG, design docs) — no code change                                                  |
+| `refactor` | Code restructure with no behavior change                                                                              |
 
 ## Scopes — map to the library's modules
 
-`schema` | `source` | `analyze` | `frontmatter` | `markdown` | `body` | `license` | `manifest` | `references` | `digest` | `finalize` | `tokenizer` | `diagnostics` | `tests` | `harness` | `docs` | `repo`
+`schema` | `source` | `analyze` | `frontmatter` | `markdown` | `body` | `license` | `manifest` | `references` | `digest` | `finalize` | `tokenizer` | `diagnostics` | `cli` | `tests` | `harness` | `docs` | `repo`
 
 - `schema` — the zod contract (`schema.ts`), output shape, JSON Schema artifact
 - `source` — `SkillSource` interface, `fromFiles`, `fromDir` (`source.ts` / `node.ts`)
 - `analyze` — pipeline orchestration (`analyze.ts`), ignore set, options
 - `frontmatter` / `markdown` / `body` / `license` / `manifest` / `references` / `digest` / `finalize` / `tokenizer` / `diagnostics` — the matching `src/*.ts` module
+- `cli` — the `asa` bin (`cli.ts`, `cli-entry.ts`, the package.json `bin` field)
 - `tests` — fixtures, helpers, contract meta-tests (when not tied to one module)
 - `harness` — `.claude/` (hooks, rules, settings), `.github/`
 - `docs` — README, CHANGELOG, `global_ignore/` design docs
