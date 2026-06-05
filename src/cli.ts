@@ -33,12 +33,12 @@ export interface CliIO {
 }
 
 export const USAGE = [
-  'Usage: asa [folder] [--json]',
+  'Usage: asa <folder> [--json]',
   '',
   'Analyze an AI-agent skill folder (a SKILL.md plus resources).',
   '',
   'Arguments:',
-  '  folder      path to the skill folder (default: current directory)',
+  '  folder      path to the skill folder (e.g. "." for the current directory)',
   '',
   'Options:',
   '  --json      print the raw SkillAnalysis JSON instead of the pretty view',
@@ -221,10 +221,18 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
     io.stderr(USAGE);
     return 2;
   }
+  // The folder is required: a bare `asa` shows usage instead of silently
+  // analyzing the current directory (use `asa .` for that explicitly).
+  const folder = paths[0];
+  if (folder === undefined) {
+    io.stderr('asa: missing folder path');
+    io.stderr(USAGE);
+    return 2;
+  }
 
   let analysis: SkillAnalysis;
   try {
-    analysis = await analyze(fromDir(paths[0] ?? '.'));
+    analysis = await analyze(fromDir(folder));
   } catch (err) {
     io.stderr(`asa: ${errorMessage(err)}`);
     return 2;

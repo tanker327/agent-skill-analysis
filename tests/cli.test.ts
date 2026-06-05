@@ -140,15 +140,13 @@ describe('runCli', () => {
     expect(err[0]).toMatch(/^asa: /);
   });
 
-  it('no folder argument defaults to the current directory', async () => {
-    const prev = process.cwd();
-    process.chdir(MINIMAL_SKILL_DIR);
-    try {
-      const { io, out } = makeIO();
-      expect(await runCli([], io)).toBe(0);
-      expect(out.join('\n')).toContain('minimal-fixture');
-    } finally {
-      process.chdir(prev);
+  it('no folder argument → usage on stderr, exit 2 (even with --json)', async () => {
+    for (const argv of [[], ['--json']]) {
+      const { io, out, err } = makeIO();
+      expect(await runCli(argv, io)).toBe(2);
+      expect(out).toEqual([]);
+      expect(err[0]).toBe('asa: missing folder path');
+      expect(err[1]).toBe(USAGE);
     }
   });
 
