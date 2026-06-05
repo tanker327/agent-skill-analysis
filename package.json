@@ -1,15 +1,17 @@
 {
   "name": "agent-skill-analysis",
   "version": "0.1.0",
-  "description": "Parse and analyze Claude Code / AI agent skills (SKILL.md) for quality, structure, and triggering effectiveness",
+  "description": "Deterministic structural analysis of AI-agent skill folders (SKILL.md + resources) into a single self-describing SkillAnalysis JSON",
   "keywords": [
     "claude",
     "claude-code",
     "agent",
     "skills",
     "skill",
+    "skill-md",
     "analysis",
-    "lint",
+    "deterministic",
+    "frontmatter",
     "ai"
   ],
   "license": "MIT",
@@ -36,13 +38,23 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./node": {
+      "import": {
+        "types": "./dist/node.d.ts",
+        "default": "./dist/node.js"
+      },
+      "require": {
+        "types": "./dist/node.d.cts",
+        "default": "./dist/node.cjs"
+      }
     }
   },
   "files": [
     "dist"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "build": "tsup",
@@ -57,8 +69,13 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
+  "dependencies": {
+    "yaml": "^2.0.0",
+    "zod": "^4.0.0"
+  },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
+    "@types/node": "^20.0.0",
     "@vitest/coverage-v8": "^3.0.0",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^10.0.0",
