@@ -134,40 +134,40 @@ Budget diagnostics use the exported constants `BODY_TOKEN_LIMIT` (4,000 tokens �
 
 The reference graph is built with two deliberately different techniques (F3):
 
-- **`orphans` (low false-positive — the primary signal):** for each file that actually exists (SKILL.md/README/LICENSE excluded), check whether its relative path appears in the body — matched on path tokens/word boundaries, not bare substrings, so `a.md` doesn't match inside `data.md` (R4).
+- **`orphans` (low false-positive — the primary signal):** for each file that actually exists (SKILL.md/README/LICENSE excluded), check whether it is mentioned in the SKILL.md body **or in any markdown document transitively reachable from it** (`SKILL.md → guide.md → script.py` chains count — an agent following links can find the file). Accepted spellings per mention: the root-relative path, the path relative to the mentioning doc (optionally `./`-anchored), the extensionless JS/TS import specifier (`scripts/utils` for `scripts/utils.js`, as in `require()`/`import` — skipped when ambiguous, e.g. `utils.js` + `utils.ts`), the bare basename when exactly **one** tree file owns it (and it contains a `.` — ambiguous or extensionless names never match), and the `python -m` dotted module form (`scripts.run_eval` for `scripts/run_eval.py`, non-root files only). All matching is on path tokens/word boundaries, not bare substrings, so `a.md` doesn't match inside `data.md` (R4). Docs that are themselves unreachable from SKILL.md are never scanned — a mention there can't rescue an orphan.
 - **`broken` (high false-positive — warning only):** parse markdown link targets and inline-code path strings out of the body to get `declared`; `broken = declared − files`. Prose examples that merely _look_ like paths can land here, which is exactly why `broken-ref` is warning-severity and never flips `ok` by default.
 
 Known limits (R4): glob patterns (`scripts/*.py`) and directory-level mentions (`see references/`) are not expanded — files referenced only that way will appear as orphans. If your skills use these patterns, consider `rules: { 'orphan-file': 'off' }`.
 
-`declared = resolved ∪ broken`; all four arrays are sorted ascending.
+`declared = resolved ∪ broken`; all four arrays are sorted ascending. `declared`/`resolved`/`broken` describe **direct** links from the SKILL.md body only — transitive reachability widens the orphan check, not these arrays, and a dead link inside a referenced doc does not emit `broken-ref`.
 
 ## Diagnostics
 
 Every code ships with a library-default severity; override any of them via `options.rules`. A `field` (the offending frontmatter field or file path) is attached where applicable. Output is sorted by `(severity, code, field)`.
 
-| Code                         | Default | Emitted when                                                                           |
-| ---------------------------- | ------- | -------------------------------------------------------------------------------------- |
-| `no-skill-md`                | error   | no `SKILL.md` at the skill root (analysis still proceeds best-effort)                  |
-| `frontmatter-parse`          | error   | the YAML block between the `---` fences is invalid                                     |
-| `name-missing`               | error   | required `name` is absent                                                              |
-| `name-too-long`              | error   | `name` exceeds 64 characters                                                           |
-| `name-invalid`               | error   | `name` violates the charset (lowercase/digits/hyphens; no leading/trailing/double `-`) |
-| `name-reserved`              | **off** | `name` is a reserved word — suppressed by default; enable via `rules`                  |
-| `name-dir-mismatch`          | warning | `name` ≠ folder name (skipped when the source has no `dir`)                            |
-| `description-missing`        | error   | required `description` is absent                                                       |
-| `description-too-long`       | error   | `description` exceeds 1024 characters                                                  |
-| `compatibility-too-long`     | warning | `compatibility` exceeds 500 characters                                                 |
-| `metadata-non-string`        | error   | a `metadata` value isn't a string (it is stringified best-effort)                      |
-| `version-missing`            | warning | `metadata.version` is not set                                                          |
-| `allowed-tools-experimental` | warning | `allowed-tools` is present (support varies across agents)                              |
-| `body-too-long`              | warning | body exceeds `BODY_TOKEN_LIMIT` (4,000) tokens                                         |
-| `body-too-many-lines`        | warning | body exceeds `BODY_LINE_LIMIT` (500) lines                                             |
-| `readme-missing`             | warning | no README in the skill folder                                                          |
-| `license-missing`            | warning | neither `frontmatter.license` nor a LICENSE/COPYING file exists                        |
-| `license-file-missing`       | warning | `frontmatter.license` is declared but no license file exists                           |
-| `broken-ref`                 | warning | a referenced path doesn't exist in the tree (see false-positive note above)            |
-| `orphan-file`                | warning | a file is present but never referenced from SKILL.md (see known limits above)          |
-| `file-too-large`             | warning | a file exceeded `maxFileBytes` and was excluded from the manifest                      |
+| Code                         | Default | Emitted when                                                                             |
+| ---------------------------- | ------- | ---------------------------------------------------------------------------------------- |
+| `no-skill-md`                | error   | no `SKILL.md` at the skill root (analysis still proceeds best-effort)                    |
+| `frontmatter-parse`          | error   | the YAML block between the `---` fences is invalid                                       |
+| `name-missing`               | error   | required `name` is absent                                                                |
+| `name-too-long`              | error   | `name` exceeds 64 characters                                                             |
+| `name-invalid`               | error   | `name` violates the charset (lowercase/digits/hyphens; no leading/trailing/double `-`)   |
+| `name-reserved`              | **off** | `name` is a reserved word — suppressed by default; enable via `rules`                    |
+| `name-dir-mismatch`          | warning | `name` ≠ folder name (skipped when the source has no `dir`)                              |
+| `description-missing`        | error   | required `description` is absent                                                         |
+| `description-too-long`       | error   | `description` exceeds 1024 characters                                                    |
+| `compatibility-too-long`     | warning | `compatibility` exceeds 500 characters                                                   |
+| `metadata-non-string`        | error   | a `metadata` value isn't a string (it is stringified best-effort)                        |
+| `version-missing`            | warning | `metadata.version` is not set                                                            |
+| `allowed-tools-experimental` | warning | `allowed-tools` is present (support varies across agents)                                |
+| `body-too-long`              | warning | body exceeds `BODY_TOKEN_LIMIT` (4,000) tokens                                           |
+| `body-too-many-lines`        | warning | body exceeds `BODY_LINE_LIMIT` (500) lines                                               |
+| `readme-missing`             | warning | no README in the skill folder                                                            |
+| `license-missing`            | warning | neither `frontmatter.license` nor a LICENSE/COPYING file exists                          |
+| `license-file-missing`       | warning | `frontmatter.license` is declared but no license file exists                             |
+| `broken-ref`                 | warning | a referenced path doesn't exist in the tree (see false-positive note above)              |
+| `orphan-file`                | warning | a file is never referenced from SKILL.md or any doc reachable from it (see limits above) |
+| `file-too-large`             | warning | a file exceeded `maxFileBytes` and was excluded from the manifest                        |
 
 The full registry — including default messages and hints — is exported as `DIAGNOSTIC_REGISTRY`. A custom or unrecognized license is **not** a diagnostic: `license.spdx` stays `null` while `license.file`/`license.text` are still populated.
 

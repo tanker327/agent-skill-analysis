@@ -13,14 +13,35 @@
  *   broken    — declared paths that do NOT exist in files[], sorted ascending.
  *               Emits 'broken-ref' (warning) for each broken path.
  *
- *   orphans   — files present in the manifest but not referenced anywhere in
- *               the body (SKILL.md, README, LICENSE excluded from candidates).
+ *   orphans   — files not referenced from SKILL.md or any markdown document
+ *               transitively reachable from it (SKILL.md, README, LICENSE
+ *               excluded from candidates).
  *               Emits 'orphan-file' (warning) for each orphan path.
  *
- * Reference detection (for orphan check) uses three complementary strategies:
+ * Transitive reachability (orphan check ONLY — declared/resolved/broken stay
+ * direct-from-SKILL.md by design):
+ *   BFS from the SKILL.md body through every referenced markdown doc whose
+ *   text was supplied in `docTexts`. A candidate counts as referenced when ANY
+ *   reachable doc mentions it under an accepted spelling:
+ *     • its root-relative path;
+ *     • the path written relative to the mentioning doc's own directory
+ *       (how markdown links are normally authored), optionally './'-anchored;
+ *     • the extensionless JS/TS import specifier ('scripts/utils' for
+ *       scripts/utils.js — require()/import style), same variants, skipped
+ *       when ambiguous;
+ *     • its bare basename, when exactly one tree file owns that basename and
+ *       it contains a '.' (ambiguity or extensionless names never match);
+ *     • the `python -m` dotted module form for non-root .py files
+ *       ('scripts/run_eval.py' ← 'scripts.run_eval').
+ *   Docs that are not themselves reachable from SKILL.md
+ *   are never scanned: under progressive disclosure an agent can only find
+ *   files by following links from SKILL.md, so a mention inside an unreachable
+ *   doc must not silence a legitimate orphan warning.
+ *
+ * Reference detection (per scanned doc) uses three complementary strategies:
  *   1. Exact match in scanMarkdown linkTargets (explicit markdown links).
  *   2. Exact match in scanMarkdown inlineCode spans (backtick mentions).
- *   3. Path-boundary word match in the raw body text — NOT bare substring.
+ *   3. Path-boundary word match in the raw doc text — NOT bare substring.
  *
  * Path-boundary matching (R4 — short-path collision prevention):
  *   A file at 'references/guide.md' is matched by the pattern:
@@ -86,6 +107,58 @@ function isReferenced(
   return re.test(bodyText);
 }
 
+/** POSIX dirname on a root-relative path: '' for root-level files. */
+function dirnamePosix(p: string): string {
+  const i = p.lastIndexOf('/');
+  return i === -1 ? '' : p.slice(0, i);
+}
+
+/** POSIX basename: the final path segment. */
+function basenamePosix(p: string): string {
+  return p.slice(p.lastIndexOf('/') + 1);
+}
+
+/**
+ * The `python -m` dotted module spelling of a .py path:
+ * 'scripts/aggregate_benchmark.py' → 'scripts.aggregate_benchmark'.
+ * Null for non-.py files AND for root-level scripts ('run.py' → bare 'run'
+ * would match the plain English word in prose — far too loose).
+ */
+function pythonModuleForm(p: string): string | null {
+  if (!p.endsWith('.py') || !p.includes('/')) return null;
+  return p.slice(0, -'.py'.length).split('/').join('.');
+}
+
+/** Extensions whose files are imported by extensionless specifier in JS/TS. */
+const JS_EXTENSION_RE = /\.(?:js|mjs|cjs|jsx|ts|mts|cts|tsx)$/;
+
+/**
+ * The extensionless import-specifier spelling of a JS/TS path:
+ * 'scripts/utils.js' → 'scripts/utils' (as in `require('./scripts/utils')`).
+ * Null for non-JS/TS files and for root-level files ('index' would match
+ * plain prose words). Path-shaped — callers add doc-relative/'./' variants.
+ */
+function jsSpecifierForm(p: string): string | null {
+  if (!p.includes('/') || !JS_EXTENSION_RE.test(p)) return null;
+  return p.replace(JS_EXTENSION_RE, '');
+}
+
+/**
+ * The path of `to` (root-relative) as written relative to `fromDir`
+ * ('' = skill root). Pure string math on already-normalized POSIX paths:
+ * relativeFromDir('references', 'scripts/run.py') → '../scripts/run.py'
+ * relativeFromDir('references', 'references/a.md') → 'a.md'
+ */
+function relativeFromDir(fromDir: string, to: string): string {
+  if (fromDir === '') return to;
+  const fromParts = fromDir.split('/');
+  const toParts = to.split('/');
+  let common = 0;
+  while (common < fromParts.length && fromParts[common] === toParts[common]) common++;
+  const ups = fromParts.length - common;
+  return [...Array<string>(ups).fill('..'), ...toParts.slice(common)].join('/');
+}
+
 /**
  * Return true when a link target string looks like a relative file path.
  *
@@ -138,6 +211,11 @@ export interface ReferencesResult {
  * @param readmePath  Detected README path (from docs stage) or null.
  * @param licensePath Detected LICENSE path (from docs stage) or null.
  * @param collector   Receives 'broken-ref' and 'orphan-file' diagnostics.
+ * @param docTexts    Decoded text of scannable companion docs, keyed by
+ *                    root-relative path (analyze.ts supplies the in-manifest
+ *                    `*.md` files; SKILL.md itself is `bodyText`). Only docs in
+ *                    this map that are reachable from SKILL.md are scanned for
+ *                    the transitive orphan check — keeps this stage pure (no IO).
  */
 export function analyzeReferences(
   bodyText: string | null,
@@ -145,6 +223,7 @@ export function analyzeReferences(
   readmePath: string | null,
   licensePath: string | null,
   collector: DiagnosticCollector,
+  docTexts: ReadonlyMap<string, string> = new Map(),
 ): ReferencesResult {
   // Build the exclusion set for orphan candidates.
   const excluded = new Set(STATIC_ORPHAN_EXCLUSIONS);
@@ -181,10 +260,94 @@ export function analyzeReferences(
     collector.emit('broken-ref', { field: p });
   }
 
-  // orphans = non-excluded paths not referenced anywhere in the body.
-  const orphans = orphanCandidates
-    .filter((p) => !isReferenced(p, scan.linkTargets, scan.inlineCode, bodyText))
-    .sort();
+  // ── Transitive reachability (orphan check only) ────────────────────────────
+  // BFS from SKILL.md through referenced markdown docs. `scannedDocs` is the
+  // worklist; for-of visits entries appended during iteration. Each doc checks
+  // every tree path under its accepted spellings (see below). A doc that is
+  // mentioned and has text in docTexts joins the worklist exactly once
+  // (`enqueued`). Deterministic: allPaths is sorted, reachability is
+  // order-independent, and docTexts is lookup-only.
+
+  // Spellings per path come in two kinds:
+  //
+  // Path-shaped (each also matched doc-relative and './'-anchored per doc):
+  //   • the root-relative path itself;
+  //   • the extensionless JS/TS import specifier ('scripts/utils' for
+  //     scripts/utils.js, as written in require()/import) — skipped when two
+  //     files share it (utils.js + utils.ts) or a real file owns that exact
+  //     path (never guess).
+  // Location-independent:
+  //   • the bare basename — ONLY when no other tree file shares it (ambiguity
+  //     keeps the warning) and it contains a '.' (an extensionless unique
+  //     basename like 'run' would match plain prose words);
+  //   • the `python -m` dotted module form for non-root .py files.
+  const basenameCounts = new Map<string, number>();
+  const specifierCounts = new Map<string, number>();
+  for (const p of allPaths) {
+    const b = basenamePosix(p);
+    basenameCounts.set(b, (basenameCounts.get(b) ?? 0) + 1);
+    const s = jsSpecifierForm(p);
+    if (s !== null) specifierCounts.set(s, (specifierCounts.get(s) ?? 0) + 1);
+  }
+  const pathShapedForms = new Map<string, readonly string[]>();
+  const fixedForms = new Map<string, readonly string[]>();
+  for (const p of allPaths) {
+    const shaped = [p];
+    const spec = jsSpecifierForm(p);
+    if (spec !== null && specifierCounts.get(spec) === 1 && !allPathsSet.has(spec)) {
+      shaped.push(spec);
+    }
+    pathShapedForms.set(p, shaped);
+
+    const fixed: string[] = [];
+    const base = basenamePosix(p);
+    if (base !== p && base.includes('.') && basenameCounts.get(base) === 1) fixed.push(base);
+    const moduleForm = pythonModuleForm(p);
+    if (moduleForm !== null) fixed.push(moduleForm);
+    fixedForms.set(p, fixed);
+  }
+
+  const scannedDocs: { dir: string; scan: ReturnType<typeof scanMarkdown>; text: string }[] = [
+    { dir: '', scan, text: bodyText },
+  ];
+  const enqueued = new Set(['SKILL.md']);
+  const referenced = new Set<string>();
+
+  for (const doc of scannedDocs) {
+    for (const p of allPaths) {
+      // Already known referenced → skip. (Invariant: referencing and enqueuing
+      // happen together below, so a referenced doc is always already enqueued —
+      // skipping here never strands a doc that still needs its first scan.)
+      if (referenced.has(p)) continue;
+      const forms = new Set<string>(fixedForms.get(p));
+      /* v8 ignore next -- unreachable: pathShapedForms is built over the same allPaths (total map); the ?? [] only satisfies Map's undefined-returning get() typing */
+      for (const f of pathShapedForms.get(p) ?? []) {
+        forms.add(f); // root-relative spelling
+        const rel = relativeFromDir(doc.dir, f);
+        forms.add(rel); // doc-relative spelling
+        // Explicit same-dir anchor ('./scripts/utils', './guide.md') — only
+        // valid for the doc-relative form; '../' spellings need no anchor.
+        if (!rel.startsWith('../')) forms.add(`./${rel}`);
+      }
+      let hit = false;
+      for (const form of forms) {
+        if (isReferenced(form, doc.scan.linkTargets, doc.scan.inlineCode, doc.text)) {
+          hit = true;
+          break;
+        }
+      }
+      if (!hit) continue;
+      referenced.add(p);
+      const text = docTexts.get(p);
+      if (text !== undefined && !enqueued.has(p)) {
+        enqueued.add(p);
+        scannedDocs.push({ dir: dirnamePosix(p), scan: scanMarkdown(text), text });
+      }
+    }
+  }
+
+  // orphans = non-excluded paths not referenced from any reachable doc.
+  const orphans = orphanCandidates.filter((p) => !referenced.has(p)).sort();
 
   // Emit orphan-file diagnostic for every orphan.
   for (const p of orphans) {

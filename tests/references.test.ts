@@ -50,9 +50,17 @@ function runReferences(
   allPaths: string[],
   readmePath: string | null = null,
   licensePath: string | null = null,
+  docTexts: ReadonlyMap<string, string> = new Map(),
 ) {
   const collector = new DiagnosticCollector();
-  const result = analyzeReferences(bodyText, allPaths, readmePath, licensePath, collector);
+  const result = analyzeReferences(
+    bodyText,
+    allPaths,
+    readmePath,
+    licensePath,
+    collector,
+    docTexts,
+  );
   return { result, codes: collector.all().map((d) => d.code) };
 }
 
@@ -226,14 +234,110 @@ describe('analyzeReferences — orphans', () => {
   });
 });
 
+describe('analyzeReferences — transitive reachability (orphan check only)', () => {
+  const docs = (entries: Record<string, string>) => new Map(Object.entries(entries));
+
+  it('SKILL.md → guide.md → script.py: script is NOT an orphan (doc-relative link)', () => {
+    const { result } = runReferences(
+      'See [guide](references/guide.md).',
+      ['SKILL.md', 'references/guide.md', 'scripts/run.py'],
+      null,
+      null,
+      docs({ 'references/guide.md': 'Run [the script](../scripts/run.py) first.' }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('mentions in reachable docs work root-relative too', () => {
+    const { result } = runReferences(
+      'See [guide](references/guide.md).',
+      ['SKILL.md', 'references/guide.md', 'scripts/run.py'],
+      null,
+      null,
+      docs({ 'references/guide.md': 'Run `scripts/run.py` first.' }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('chain depth 3: SKILL.md → a.md → b.md → c.py', () => {
+    const { result } = runReferences(
+      '[a](docs/a.md)',
+      ['SKILL.md', 'docs/a.md', 'docs/b.md', 'scripts/c.py'],
+      null,
+      null,
+      docs({
+        'docs/a.md': 'Continue in [b](b.md).',
+        // Doc-relative tier-3 raw mention (no trailing path-char after the path).
+        'docs/b.md': 'Finally run ../scripts/c.py before anything else.',
+      }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('a mention inside an UNREACHABLE doc does not rescue an orphan', () => {
+    const { result } = runReferences(
+      'No links here.',
+      ['SKILL.md', 'notes.md', 'scripts/x.py'],
+      null,
+      null,
+      docs({ 'notes.md': 'Uses scripts/x.py heavily.' }),
+    );
+    // notes.md is never referenced from SKILL.md → its content must not count.
+    expect(result.orphans).toEqual(['notes.md', 'scripts/x.py']);
+  });
+
+  it('cyclic doc references terminate and resolve the whole cycle', () => {
+    const { result } = runReferences(
+      '[a](a.md)',
+      ['SKILL.md', 'a.md', 'b.md', 'scripts/c.py'],
+      null,
+      null,
+      docs({
+        'a.md': 'See [b](b.md).',
+        'b.md': 'Back to [a](a.md), then run `scripts/c.py`.',
+      }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('declared/resolved/broken stay direct-from-SKILL.md: sub-doc links never join them', () => {
+    const { result, codes } = runReferences(
+      '[guide](references/guide.md)',
+      ['SKILL.md', 'references/guide.md', 'scripts/run.py'],
+      null,
+      null,
+      docs({ 'references/guide.md': '[run](../scripts/run.py) and [dead](../missing.md)' }),
+    );
+    expect(result.declared).toEqual(['references/guide.md']);
+    expect(result.resolved).toEqual(['references/guide.md']);
+    // The dead link inside guide.md is NOT a broken-ref — that lint stays SKILL.md-only.
+    expect(result.broken).toEqual([]);
+    expect(codes).not.toContain('broken-ref');
+  });
+
+  it('R4 boundary matching applies inside reachable docs too', () => {
+    const { result } = runReferences(
+      '[guide](docs/guide.md)',
+      ['SKILL.md', 'docs/guide.md', 'a.md', 'data.md'],
+      null,
+      null,
+      // 'data.md' mentioned; bare 'a.md' must not match inside it.
+      docs({ 'docs/guide.md': 'See ../data.md for the table.' }),
+    );
+    expect(result.orphans).toEqual(['a.md']);
+    expect(result.orphans).not.toContain('data.md');
+  });
+});
+
 describe('analyzeReferences — R4 short-path collision prevention', () => {
   /**
    * R4: path-boundary matching prevents 'a.md' (short) from matching inside
    * 'data.md' (longer). The '.' before 'md' is a path char, but the 'dat'
    * before 'a.md' means the lookbehind [A-Za-z0-9._/-] fires on 't' → no match.
    *
-   * Similarly, 'guide.md' must NOT match within 'references/guide.md' because
-   * the '/' before 'guide' is in the path-char class → lookbehind fires → no match.
+   * Bare-basename mentions ('guide.md' for 'references/guide.md') DO count —
+   * but only when exactly one tree file owns that basename and it contains a
+   * '.'; ambiguity or extensionless names keep the orphan warning (never guess).
    */
   it('a.md does NOT match within data.md — a.md is an orphan', () => {
     // body links only to data.md; a.md exists but must remain orphan
@@ -253,12 +357,122 @@ describe('analyzeReferences — R4 short-path collision prevention', () => {
     expect(result.orphans).toContain('references/a.md');
   });
 
-  it('guide.md does NOT match within references/guide.md — longer path is orphan', () => {
-    // body mentions only "guide.md" at word boundary (tier-3), not references/guide.md
+  it('bare unique basename DOES match its only owner — references/guide.md resolved', () => {
+    // Exactly one tree file is named guide.md → the bare mention counts.
     const body = 'See guide.md for details.';
     const { result } = runReferences(body, ['SKILL.md', 'references/guide.md']);
-    // 'references/guide.md' has '/' before 'guide' — lookbehind fires → not matched
-    expect(result.orphans).toContain('references/guide.md');
+    expect(result.orphans).not.toContain('references/guide.md');
+  });
+
+  it('ambiguous basename does NOT match — both owners stay orphans', () => {
+    // Two files share the basename guide.md → a bare mention is ambiguous and
+    // must rescue neither (the R4 spirit: never guess).
+    const body = 'See `guide.md` for details.';
+    const { result } = runReferences(body, ['SKILL.md', 'docs/guide.md', 'references/guide.md']);
+    expect(result.orphans).toEqual(['docs/guide.md', 'references/guide.md']);
+  });
+
+  it('extensionless unique basename does NOT match prose words', () => {
+    // scripts/run has the unique basename 'run' — but bare extensionless names
+    // are excluded from basename matching: 'run' in prose must not count.
+    const body = 'Now run the tool.';
+    const { result } = runReferences(body, ['SKILL.md', 'scripts/run']);
+    expect(result.orphans).toContain('scripts/run');
+  });
+});
+
+describe('analyzeReferences — python module form', () => {
+  it('python -m dotted form matches the .py file', () => {
+    const body = 'Aggregate with `python -m scripts.aggregate_benchmark` afterwards.';
+    const { result } = runReferences(body, ['SKILL.md', 'scripts/aggregate_benchmark.py']);
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('dotted form works in raw text and nested dirs', () => {
+    const body = 'Run python -m tools.eval.runner to start';
+    const { result } = runReferences(body, ['SKILL.md', 'tools/eval/runner.py']);
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('root-level .py files get NO module form — a bare word never matches', () => {
+    // run.py at root would have module form 'run'; that must not exist,
+    // otherwise the word 'run' in prose silences the orphan warning.
+    const body = 'Now run the tool.';
+    const { result } = runReferences(body, ['SKILL.md', 'run.py']);
+    expect(result.orphans).toContain('run.py');
+  });
+
+  it('module form does not apply to non-python files', () => {
+    // 'data/set' is not how data/set.json would be mentioned — no dotted form.
+    const body = 'Uses data.set internally.';
+    const { result } = runReferences(body, ['SKILL.md', 'data/set.json']);
+    expect(result.orphans).toContain('data/set.json');
+  });
+});
+
+describe('analyzeReferences — JS/TS import specifier form', () => {
+  it("require('./scripts/utils') matches scripts/utils.js", () => {
+    const body = "Load helpers with `require('./scripts/utils')` first.";
+    const { result } = runReferences(body, ['SKILL.md', 'scripts/utils.js']);
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('extensionless specifier in raw text matches a .ts file', () => {
+    const body = "```js\nimport { run } from 'lib/runner';\n```";
+    const { result } = runReferences(body, ['SKILL.md', 'lib/runner.ts']);
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('ambiguous specifier (utils.js + utils.ts) rescues neither', () => {
+    const body = "See `require('./scripts/utils')` for helpers.";
+    const { result } = runReferences(body, ['SKILL.md', 'scripts/utils.js', 'scripts/utils.ts']);
+    expect(result.orphans).toEqual(['scripts/utils.js', 'scripts/utils.ts']);
+  });
+
+  it('specifier shadowed by a real extensionless file never matches the JS file', () => {
+    // A real file named scripts/utils exists — the mention belongs to it.
+    const body = 'Uses `scripts/utils` directly.';
+    const { result } = runReferences(body, ['SKILL.md', 'scripts/utils', 'scripts/utils.js']);
+    expect(result.orphans).toEqual(['scripts/utils.js']);
+  });
+
+  it('root-level JS files get NO specifier form — a bare word never matches', () => {
+    // index.js at root would have specifier 'index' — too loose for prose.
+    const body = 'See the index for details.';
+    const { result } = runReferences(body, ['SKILL.md', 'index.js']);
+    expect(result.orphans).toContain('index.js');
+  });
+});
+
+describe('analyzeReferences — ./-anchored spellings', () => {
+  it('./-anchored full path matches from SKILL.md', () => {
+    const body = 'Run `./scripts/run.py` to start.';
+    const { result } = runReferences(body, ['SKILL.md', 'scripts/run.py']);
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('./-anchored same-dir mention works inside a reachable sub-doc', () => {
+    const { result } = runReferences(
+      '[guide](references/guide.md)',
+      ['SKILL.md', 'references/guide.md', 'references/data.csv'],
+      null,
+      null,
+      new Map([['references/guide.md', 'Columns are described in `./data.csv` rows.']]),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it("'./scripts/x' inside a sub-doc is doc-relative — it does NOT match a root file", () => {
+    const { result } = runReferences(
+      '[guide](docs/guide.md)',
+      ['SKILL.md', 'docs/guide.md', 'scripts/x.py'],
+      null,
+      null,
+      // './scripts/x.py' written in docs/guide.md denotes docs/scripts/x.py,
+      // which does not exist — the root scripts/x.py must stay an orphan.
+      new Map([['docs/guide.md', 'Run `./scripts/x.py` now.']]),
+    );
+    expect(result.orphans).toEqual(['scripts/x.py']);
   });
 });
 
@@ -328,6 +542,41 @@ describe('references — integration (analyze)', () => {
     expect(diag).toBeDefined();
     expect(diag?.severity).toBe('warning');
     expect(diag?.field).toBe('references/guide.md');
+  });
+
+  it('transitive chain: SKILL.md → guide.md → scripts, only the unmentioned script orphans', async () => {
+    const result = await analyze(
+      mem({
+        'SKILL.md': FM + 'Read [the guide](references/guide.md) first.',
+        'README.md': '# R',
+        LICENSE: 'MIT',
+        'references/guide.md': 'Run [run](../scripts/run.py), then `../scripts/utils.py`.',
+        'scripts/run.py': 'print(1)',
+        'scripts/utils.py': 'print(2)',
+        'scripts/lone.py': 'print(3)',
+      }),
+    );
+    expect(() => SkillAnalysisSchema.parse(result)).not.toThrow();
+    expect(result.references.orphans).toEqual(['scripts/lone.py']);
+    // The contract arrays stay direct-from-SKILL.md.
+    expect(result.references.declared).toEqual(['references/guide.md']);
+    expect(result.diagnostics.filter((d) => d.code === 'orphan-file')).toHaveLength(1);
+  });
+
+  it('a binary .md file resolves but is never scanned for onward references', async () => {
+    const result = await analyze(
+      fromFiles({
+        'SKILL.md': FM + 'See [bin](bin.md) for the blob.',
+        'README.md': '# R',
+        LICENSE: 'MIT',
+        'bin.md': new Uint8Array([0x00, 0x9f, 0x92, 0x96]), // null byte → isText: false
+        'scripts/x.py': 'print(1)',
+      }),
+    );
+    // bin.md is referenced (resolved, not orphan) but unscannable —
+    // a mention it might contain cannot rescue scripts/x.py.
+    expect(result.references.resolved).toContain('bin.md');
+    expect(result.references.orphans).toEqual(['scripts/x.py']);
   });
 
   it('R4: body mentions data.md — a.md is an orphan (no substring collision)', async () => {
