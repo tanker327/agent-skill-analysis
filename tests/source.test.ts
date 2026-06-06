@@ -134,6 +134,27 @@ describe('fromDir', () => {
     await expect(source.read('does-not-exist.md')).rejects.toThrow();
   });
 
+  it('read() rejects a ../ path that escapes the root, even when the target exists (F24)', async () => {
+    // ../binary-skill/SKILL.md resolves to a real file OUTSIDE the root — the
+    // rejection must come from the contract check, not from the file being absent.
+    const source = fromDir(MINIMAL_SKILL_DIR);
+    await expect(source.read('../binary-skill/SKILL.md')).rejects.toThrow(/escapes the skill root/);
+  });
+
+  it('read() allows a ../ path that normalizes back INSIDE the root (F24 boundary)', async () => {
+    // The check is on the resolved path, not on the presence of '..' — a path
+    // that round-trips back into the root cannot read anything outside it.
+    const source = fromDir(MINIMAL_SKILL_DIR);
+    const bytes = await source.read('../minimal-skill/SKILL.md');
+    expect(dec.decode(bytes)).toContain('name: minimal-fixture');
+  });
+
+  it('read() rejects an absolute path outside the root (F24)', async () => {
+    const source = fromDir(MINIMAL_SKILL_DIR);
+    const outside = path.resolve(MINIMAL_SKILL_DIR, '..', 'binary-skill', 'SKILL.md');
+    await expect(source.read(outside)).rejects.toThrow(/escapes the skill root/);
+  });
+
   it('list() skips entries that are neither files nor directories (symlink)', async () => {
     // Symlinks can't live in the git fixture (checkout differs across platforms),
     // so build a throwaway dir: readdir's Dirent reports a symlink as neither

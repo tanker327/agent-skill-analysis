@@ -3,12 +3,14 @@
  * Published as the "./node" subpath so the core stays runtime-agnostic.
  */
 import { readdir, readFile } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 
 import type { SkillSource } from './source.js';
 
 /**
  * Disk-backed source rooted at `root`. Paths are reported relative POSIX.
+ * `read()` only accepts paths that resolve inside the root — absolute paths
+ * and `../` escapes are rejected (F24).
  * Only regular files are listed — symlinks are skipped deliberately: symlink
  * policy belongs to the consumer's unpack/validation stage, not this library
  * (design decision D-A5).
@@ -36,7 +38,15 @@ export function fromDir(root: string): SkillSource {
       return out;
     },
     async read(path: string): Promise<Uint8Array> {
-      const buf = await readFile(join(absRoot, path));
+      // Contract: `path` is a root-relative path as produced by list(). Resolve
+      // and verify the result stays inside the root — this rejects absolute
+      // paths and `../` escapes (F24). SkillSource IO is the library's one
+      // allowed rejection (R3), so throwing here is the right mechanism.
+      const abs = resolve(absRoot, path);
+      if (!abs.startsWith(absRoot + sep)) {
+        throw new Error(`fromDir: path escapes the skill root: ${path}`);
+      }
+      const buf = await readFile(abs);
       return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
     },
   };
