@@ -6,12 +6,16 @@
  *
  *   declared  — unique relative paths linked in the SKILL.md body
  *               (from scanMarkdown linkTargets), sorted ascending.
- *               declared = resolved ∪ broken.
+ *               declared = resolved ∪ broken ∪ external.
  *
- *   resolved  — declared paths that exist in files[], sorted ascending.
+ *   resolved  — in-folder declared paths that exist in files[], sorted ascending.
  *
- *   broken    — declared paths that do NOT exist in files[], sorted ascending.
- *               Emits 'broken-ref' (warning) for each broken path.
+ *   broken    — in-folder declared paths that do NOT exist in files[], sorted
+ *               ascending. Emits 'broken-ref' (warning) for each broken path.
+ *
+ *   external  — declared paths that escape the skill folder ('../sibling/...'),
+ *               sorted ascending. Cannot be resolved within the single folder, so
+ *               reported separately from broken (F7). Emits 'external-ref'.
  *
  *   orphans   — files not reachable from SKILL.md through any chain of
  *               references (SKILL.md, README, LICENSE, and root-level
@@ -65,6 +69,7 @@
  */
 
 import type { DiagnosticCollector } from './diagnostics.js';
+import { isRootReadme } from './docs.js';
 import { scanMarkdown } from './markdown.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -87,6 +92,35 @@ const CONVENTION_BASENAMES = new Set(['agents.md']);
 /** True for a root-level convention file (read by name, never an orphan). */
 function isConventionFile(p: string): boolean {
   return !p.includes('/') && CONVENTION_BASENAMES.has(p.toLowerCase());
+}
+
+/**
+ * Root-level repo "community-health" / scaffolding documents (F3). When a skill
+ * folder is also a repository root, these standard repo-management files appear
+ * but are never meant to be referenced from SKILL.md — they document the project,
+ * not the skill. They stay in files[] (and the digest) but are not orphan
+ * candidates, so they don't drown the orphan signal. Root-level only, lowercased.
+ */
+const SCAFFOLDING_BASENAMES = new Set([
+  'contributing.md',
+  'contributing',
+  'changelog.md',
+  'changelog',
+  'code_of_conduct.md',
+  'security.md',
+  'support.md',
+  'sponsors.md',
+  'governance.md',
+  'authors',
+  'authors.md',
+  'notice',
+  'notice.md',
+  'maintainers.md',
+]);
+
+/** True for a root-level repo scaffolding doc (never an orphan, F3). */
+function isScaffoldingFile(p: string): boolean {
+  return !p.includes('/') && SCAFFOLDING_BASENAMES.has(p.toLowerCase());
 }
 
 /**
@@ -151,6 +185,38 @@ function isReferenced(
   return new RegExp(`${DYNAMIC_PREFIX_LOOKBEHIND}${escaped}${tail}`).test(bodyText);
 }
 
+/**
+ * Collapse '.' and '..' segments in a relative POSIX path. A leading '..' that
+ * cannot be cancelled is preserved, so a path that climbs above the root keeps
+ * its leading '..' — that is how `escapesRoot` detects a folder escape.
+ *   'references/../guide.md' → 'guide.md'   (stays in-folder)
+ *   '../lark-shared/SKILL.md' → '../lark-shared/SKILL.md'  (escapes)
+ */
+function normalizeRelPosix(p: string): string {
+  const out: string[] = [];
+  for (const seg of p.split('/')) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') {
+      const top = out[out.length - 1];
+      if (out.length > 0 && top !== '..') out.pop();
+      else out.push('..');
+    } else {
+      out.push(seg);
+    }
+  }
+  return out.join('/');
+}
+
+/**
+ * True when a declared relative reference escapes the skill folder (F7): after
+ * normalization it still begins with a '..' segment, so the target lives outside
+ * the analyzed folder and cannot be resolved here (it is not a broken link).
+ */
+function escapesRoot(target: string): boolean {
+  const norm = normalizeRelPosix(target);
+  return norm === '..' || norm.startsWith('../');
+}
+
 /** POSIX dirname on a root-relative path: '' for root-level files. */
 function dirnamePosix(p: string): string {
   const i = p.lastIndexOf('/');
@@ -186,6 +252,35 @@ function pythonRelativeImportForm(fromDir: string, p: string): string | null {
   let ups = 0;
   while (ups < segs.length && segs[ups] === '..') ups++;
   return '.'.repeat(ups + 1) + segs.slice(ups).join('.');
+}
+
+/**
+ * The ABSOLUTE-import spelling of a .py candidate when the scanning file's own
+ * directory is on sys.path (F2). Running `python scripts/office/pack.py` puts
+ * `scripts/office` on sys.path[0], so `pack.py` reaches a sibling package with a
+ * bare absolute import: `from validators import X` → scripts/office/validators/.
+ *
+ *   pythonSysPathImportForm('scripts/office', 'scripts/office/validators/__init__.py')
+ *     → 'validators'              (package: the trailing __init__ is dropped)
+ *   pythonSysPathImportForm('scripts/office', 'scripts/office/util.py')
+ *     → 'util'                    (module)
+ *
+ * Null for: non-.py candidates; candidates not at/under `fromDir` (would need
+ * '..' — not importable through this sys.path root); and the scanning file's own
+ * package __init__ (empty module path). The bare/dotted form is matched by the
+ * tier-3 path-boundary regex, so it only fires on an exact word-boundary hit
+ * (`from validators import`), never as a loose substring.
+ */
+function pythonSysPathImportForm(fromDir: string, p: string): string | null {
+  if (!p.endsWith('.py')) return null;
+  const rel = relativeFromDir(fromDir, p.slice(0, -'.py'.length));
+  if (rel === '' || rel.startsWith('..')) return null;
+  const segs = rel.split('/');
+  // Package import: `from pkg import x` references pkg/__init__.py via the bare
+  // package path, so drop the trailing '__init__' segment.
+  if (segs[segs.length - 1] === '__init__') segs.pop();
+  if (segs.length === 0) return null;
+  return segs.join('.');
 }
 
 /** Extensions whose files are imported by extensionless specifier in JS/TS. */
@@ -247,6 +342,8 @@ export interface ReferencesResult {
   resolved: string[];
   /** declared paths that do NOT exist in the skill tree; sorted ascending. */
   broken: string[];
+  /** declared paths that escape the skill folder (`../sibling/...`); sorted ascending (F7). */
+  external: string[];
   /** Skill-tree paths that are unreferenced (SKILL.md/README/LICENSE excluded). */
   orphans: string[];
 }
@@ -295,7 +392,13 @@ export function analyzeReferences(
 
   // Non-excluded paths are orphan candidates regardless of manifest filtering.
   // Convention files (AGENTS.md) are read by name, not by reference — excluded.
-  const orphanCandidates = allPaths.filter((p) => !excluded.has(p) && !isConventionFile(p));
+  // Root-level repo scaffolding (CONTRIBUTING.md, CHANGELOG.md, …) documents the
+  // project, not the skill — excluded from orphan candidates (F3).
+  // Localized READMEs (README.en.md, …) are documentation, never orphans — the
+  // single detected README is already in `excluded`; this covers the variants (F4).
+  const orphanCandidates = allPaths.filter(
+    (p) => !excluded.has(p) && !isConventionFile(p) && !isScaffoldingFile(p) && !isRootReadme(p),
+  );
 
   // When SKILL.md is absent there is no body to scan.
   // All non-excluded paths are orphans; declared/resolved/broken stay empty.
@@ -304,7 +407,7 @@ export function analyzeReferences(
     for (const p of orphans) {
       collector.emit('orphan-file', { field: p });
     }
-    return { declared: [], resolved: [], broken: [], orphans };
+    return { declared: [], resolved: [], broken: [], external: [], orphans };
   }
 
   const scan = scanMarkdown(bodyText);
@@ -312,13 +415,22 @@ export function analyzeReferences(
   // declared = unique relative link-target paths from the body, sorted.
   const declared = [...new Set(scan.linkTargets.filter(isRelativePath))].sort();
 
-  // resolved / broken split against the full post-ignore path set.
-  const resolved = declared.filter((p) => allPathsSet.has(p));
-  const broken = declared.filter((p) => !allPathsSet.has(p));
+  // External references escape the skill folder (`../sibling/...`) and cannot be
+  // resolved here (F7) — they are out-of-scope, not broken links. Split them off
+  // before the resolved/broken decision so they never land in `broken`.
+  const external = declared.filter(escapesRoot);
+  const internal = declared.filter((p) => !escapesRoot(p));
 
-  // Emit broken-ref diagnostic for every broken path.
+  // resolved / broken split the in-folder references against the full path set.
+  const resolved = internal.filter((p) => allPathsSet.has(p));
+  const broken = internal.filter((p) => !allPathsSet.has(p));
+
+  // Emit broken-ref for missing in-folder paths and external-ref for escapes.
   for (const p of broken) {
     collector.emit('broken-ref', { field: p });
+  }
+  for (const p of external) {
+    collector.emit('external-ref', { field: p });
   }
 
   // ── Transitive reachability (orphan check only) ────────────────────────────
@@ -377,12 +489,19 @@ export function analyzeReferences(
     linkTargets: [],
     inlineCode: [],
   };
+  const isMarkdownPath = (path: string): boolean => path.toLowerCase().endsWith('.md');
   const scanFor = (path: string, text: string): ReturnType<typeof scanMarkdown> =>
-    path.toLowerCase().endsWith('.md') ? scanMarkdown(text) : EMPTY_SCAN;
+    isMarkdownPath(path) ? scanMarkdown(text) : EMPTY_SCAN;
 
-  const scannedDocs: { dir: string; scan: ReturnType<typeof scanMarkdown>; text: string }[] = [
-    { dir: '', scan, text: bodyText },
-  ];
+  // `isMarkdown` gates the bare sys.path absolute-import form (F2): it may only
+  // fire when scanning source code, never markdown prose, where a bare module
+  // word like 'run' would collide with ordinary English.
+  const scannedDocs: {
+    dir: string;
+    scan: ReturnType<typeof scanMarkdown>;
+    text: string;
+    isMarkdown: boolean;
+  }[] = [{ dir: '', scan, text: bodyText, isMarkdown: true }];
   const enqueued = new Set(['SKILL.md']);
   const referenced = new Set<string>();
 
@@ -391,7 +510,12 @@ export function analyzeReferences(
     const text = fileTexts.get(path);
     if (text === undefined || enqueued.has(path)) return;
     enqueued.add(path);
-    scannedDocs.push({ dir: dirnamePosix(path), scan: scanFor(path, text), text });
+    scannedDocs.push({
+      dir: dirnamePosix(path),
+      scan: scanFor(path, text),
+      text,
+      isMarkdown: isMarkdownPath(path),
+    });
   };
 
   /**
@@ -430,6 +554,13 @@ export function analyzeReferences(
       // the scanning file's own package directory.
       const pyRel = pythonRelativeImportForm(doc.dir, p);
       if (pyRel !== null) forms.add(pyRel);
+      // Absolute import via the scanning file's own dir on sys.path (F2):
+      // 'from validators import X' in scripts/office/pack.py → scripts/office/validators/.
+      // Source files only — a bare module word must never match markdown prose.
+      if (!doc.isMarkdown) {
+        const pySys = pythonSysPathImportForm(doc.dir, p);
+        if (pySys !== null) forms.add(pySys);
+      }
       let hit = false;
       for (const form of forms) {
         if (isReferenced(form, doc.scan.linkTargets, doc.scan.inlineCode, doc.text)) {
@@ -452,5 +583,5 @@ export function analyzeReferences(
     collector.emit('orphan-file', { field: p });
   }
 
-  return { declared, resolved, broken, orphans };
+  return { declared, resolved, broken, external, orphans };
 }

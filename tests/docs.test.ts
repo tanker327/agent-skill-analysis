@@ -112,6 +112,16 @@ describe('findReadmePath — pure path search', () => {
     expect(findReadmePath(['README.txt'])).toBeNull();
   });
 
+  it('canonical README.md is preferred over a localized variant (F4)', () => {
+    // README.en.md sorts before README.md, but the canonical name must still win.
+    expect(findReadmePath(['README.en.md', 'README.md', 'SKILL.md'])).toBe('README.md');
+  });
+
+  it('a localized-only README.<lang>.md is detected (no readme-missing) (F4)', () => {
+    expect(findReadmePath(['SKILL.md', 'README.zh-CN.md'])).toBe('README.zh-CN.md');
+    expect(findReadmePath(['SKILL.md', 'readme.en.md'])).toBe('readme.en.md');
+  });
+
   it('no README variant in list → null', () => {
     expect(findReadmePath(['SKILL.md', 'LICENSE', 'references/guide.md'])).toBeNull();
   });

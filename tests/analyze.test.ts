@@ -20,6 +20,62 @@ describe('DEFAULT_IGNORE', () => {
     expect(DEFAULT_IGNORE).toContain('node_modules');
     expect(DEFAULT_IGNORE).toContain('.DS_Store');
   });
+
+  it('includes repo-root scaffolding artifacts (F3): .github, lockfiles, tool caches', () => {
+    for (const e of ['.github', '.gitignore', 'package-lock.json', '.vscode', '.pytest_cache']) {
+      expect(DEFAULT_IGNORE).toContain(e);
+    }
+  });
+});
+
+// ── F3: repo-root scaffolding does not pollute files[] / orphans ─────────────────
+
+describe('repo-root scaffolding handling (F3)', () => {
+  it('VCS/tooling artifacts are excluded from files[] and produce no orphan-file', async () => {
+    const files = {
+      'SKILL.md': '---\nname: f3-skill\ndescription: Repo-root scaffolding test.\n---\n\n# Test\n',
+      '.github/workflows/ci.yml': 'on: push',
+      '.gitignore': 'node_modules\n',
+      'package-lock.json': '{}',
+    };
+    const result = await analyze(mem(files));
+    const paths = result.files.map((f) => f.path);
+    expect(paths).not.toContain('.github/workflows/ci.yml');
+    expect(paths).not.toContain('.gitignore');
+    expect(paths).not.toContain('package-lock.json');
+    expect(result.references.orphans).toEqual([]);
+    expect(result.diagnostics.some((d) => d.code === 'orphan-file')).toBe(false);
+  });
+
+  it('localized README.<lang>.md is classified as readme and is not an orphan (F4)', async () => {
+    const files = {
+      'SKILL.md': '---\nname: f4-skill\ndescription: Localized readme test.\n---\n\n# Test\n',
+      'README.md': '# English\n',
+      'README.zh.md': '# 中文\n',
+    };
+    const result = await analyze(mem(files));
+    const enKind = result.files.find((f) => f.path === 'README.md')?.kind;
+    const zhKind = result.files.find((f) => f.path === 'README.zh.md')?.kind;
+    expect(enKind).toBe('readme');
+    expect(zhKind).toBe('readme'); // F4: was 'other' before
+    expect(result.references.orphans).not.toContain('README.zh.md');
+    expect(result.diagnostics.some((d) => d.code === 'readme-missing')).toBe(false);
+  });
+
+  it('community-health docs stay in files[] but are not orphans (F3)', async () => {
+    const files = {
+      'SKILL.md': '---\nname: f3-docs\ndescription: Community health docs test.\n---\n\n# Test\n',
+      'CONTRIBUTING.md': '# How to contribute\n',
+      'CHANGELOG.md': '# Changelog\n',
+    };
+    const result = await analyze(mem(files));
+    const paths = result.files.map((f) => f.path);
+    // Kept in the manifest (real content, part of the digest) ...
+    expect(paths).toContain('CONTRIBUTING.md');
+    expect(paths).toContain('CHANGELOG.md');
+    // ... but never flagged as orphans.
+    expect(result.references.orphans).toEqual([]);
+  });
 });
 
 // ── ignore filtering ───────────────────────────────────────────────────────────

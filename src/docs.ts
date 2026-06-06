@@ -88,6 +88,30 @@ const LICENSE_HEAD_LINES = 20;
 /** Recognized README basenames (lowercased for case-insensitive lookup). */
 const README_BASENAMES = new Set(['readme.md', 'readme']);
 
+/**
+ * Localized README variants: README.<lang>.md / README.<lang-REGION>.md
+ * (e.g. README.en.md, README.zh.md, README.zh-CN.md, README.pt-BR.md). F4:
+ * these are real READMEs — classified as `readme` and never orphaned — not the
+ * `other` junk they were treated as before.
+ */
+const LOCALIZED_README_RE = /^readme\.[a-z]{2,3}(?:-[a-z]{2,4})?\.md$/;
+
+/**
+ * True when `name` (a basename) is any recognized README spelling — the
+ * canonical README.md / README or a localized README.<lang>.md (F4).
+ * Case-insensitive. Shared by docs (detection), manifest (kind), and references
+ * (orphan exclusion) so the three stages never disagree.
+ */
+export function isReadmeBasename(name: string): boolean {
+  const lower = name.toLowerCase();
+  return README_BASENAMES.has(lower) || LOCALIZED_README_RE.test(lower);
+}
+
+/** True when `path` is a root-level README of any recognized spelling (F4). */
+export function isRootReadme(path: string): boolean {
+  return !path.includes('/') && isReadmeBasename(path);
+}
+
 /** Recognized LICENSE basenames (lowercased for case-insensitive lookup). */
 const LICENSE_BASENAMES = new Set(['license', 'license.txt', 'license.md', 'copying']);
 
@@ -111,8 +135,14 @@ export interface LicenseResult {
  * output is deterministic). Returns null when no README is present.
  */
 export function findReadmePath(paths: readonly string[]): string | null {
+  // Prefer the canonical README.md / README ...
   for (const p of paths) {
     if (!p.includes('/') && README_BASENAMES.has(p.toLowerCase())) return p;
+  }
+  // ... then fall back to a localized README.<lang>.md so a localized-only repo
+  // is not reported as readme-missing (F4).
+  for (const p of paths) {
+    if (isRootReadme(p)) return p;
   }
   return null;
 }

@@ -31,13 +31,32 @@ import { DEFAULT_TOKENIZER } from './tokenizer.js';
  * ignore configuration; cross-party comparison requires the same config.
  */
 export const DEFAULT_IGNORE: readonly string[] = [
+  // VCS
   '.git',
   '.hg',
   '.svn',
+  // Dependency / build / tool caches
   'node_modules',
   '__pycache__',
   '.DS_Store',
   'Thumbs.db',
+  // F3: VCS/CI/editor/tooling artifacts that show up when a skill folder is a
+  // whole repo root. All entries are dot-prefixed dirs/files or lockfiles, so
+  // they cannot collide with a real-word skill resource name (segment match).
+  '.github',
+  '.gitlab',
+  '.gitignore',
+  '.gitattributes',
+  '.gitmodules',
+  '.vscode',
+  '.idea',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.ruff_cache',
+  '.venv',
+  'package-lock.json',
+  'yarn.lock',
+  'pnpm-lock.yaml',
 ];
 
 function isIgnored(path: string, ignore: readonly string[]): boolean {

@@ -161,17 +161,29 @@ export function normalizeFrontmatter(
         metadata[k] = v;
       } else {
         // Stringify and record: the value is preserved, the type violation is noted.
-        metadata[k] = String(v);
+        // Objects and arrays are JSON-encoded so they round-trip — String() would
+        // collapse an object to the useless "[object Object]". The reported type is
+        // the real one (`array` is distinguished from `object`; `null` from `object`).
+        // v is already JSON-safe here (projectJsonSafe ran at the parse boundary).
+        const isStructured = typeof v === 'object' && v !== null;
+        const coerced = isStructured ? JSON.stringify(v) : String(v);
+        const actualType = Array.isArray(v) ? 'array' : v === null ? 'null' : typeof v;
+        metadata[k] = coerced;
         collector.emit('metadata-non-string', {
           field: `metadata.${k}`,
-          message: `metadata.${k} is not a string (got ${typeof v}); stringified to "${String(v)}".`,
+          message: `metadata.${k} is not a string (got ${actualType}); stringified to "${coerced}".`,
         });
       }
     }
   }
 
-  // version: hoisted from metadata.version. Kept as string — "1.10" must not become 1.1.
-  const version: string | null = metadata?.['version'] ?? null;
+  // version: hoisted from metadata.version, falling back to a top-level `version`
+  // key (F8) when metadata.version is absent — an author who put `version:` at the
+  // top level clearly declared one, so it must not trigger version-missing. The
+  // top-level key still remains in `extra` verbatim (same as metadata.version stays
+  // in metadata). Kept as a string ("1.10" must not become 1.1); a non-string
+  // top-level version (e.g. the number 1.0) is ignored, matching metadata behavior.
+  const version: string | null = metadata?.['version'] ?? toStringOrNull(raw['version']);
 
   // allowed-tools: split space-separated string into array (O1).
   // Also accept a YAML sequence for robustness.

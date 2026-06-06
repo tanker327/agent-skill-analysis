@@ -146,10 +146,17 @@ export const SkillAnalysisSchema = z.strictObject({
     tokenizer: z.string(),
   }),
   references: z.strictObject({
-    /** Relative paths referenced from the SKILL.md body (sorted asc). declared = resolved ∪ broken. */
+    /** Relative paths referenced from the SKILL.md body (sorted asc). declared = resolved ∪ broken ∪ external. */
     declared: z.array(z.string()),
     resolved: z.array(z.string()),
     broken: z.array(z.string()),
+    /**
+     * Declared references that escape the skill folder (`../sibling/...`) and so
+     * cannot be resolved within it (F7). Reported separately from `broken` —
+     * they are out-of-scope, not author errors (common in vendor-CLI skill suites
+     * that cross-reference a shared sibling). Sorted ascending.
+     */
+    external: z.array(z.string()),
     /** Files present but unreferenced (SKILL.md/README/LICENSE excluded). */
     orphans: z.array(z.string()),
   }),

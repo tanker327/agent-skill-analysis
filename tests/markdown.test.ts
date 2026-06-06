@@ -294,6 +294,31 @@ describe('scanMarkdown — full scan result', () => {
     expect(scan.inlineCode).toContain('analyze()');
   });
 
+  it('does NOT extract a link target written inside an inline code span (F6)', () => {
+    // `[name](url)` inside backticks is documentation OF link syntax, not a real
+    // link — its target must not leak into linkTargets (it would become a phantom
+    // broken-ref). The span content is still captured in inlineCode.
+    const text = 'Every citation is an inline markdown link `[name](url)`. Never raw.\n';
+    const scan = scanMarkdown(text);
+    expect(scan.linkTargets).toEqual([]);
+    expect(scan.inlineCode).toContain('[name](url)');
+  });
+
+  it('still extracts a real link on the same line as an inline-code link (F6)', () => {
+    // Masking only blanks the code span; a genuine link elsewhere on the line stays.
+    const text = 'Format is `[name](url)` — see [the guide](docs/guide.md).\n';
+    const scan = scanMarkdown(text);
+    expect(scan.linkTargets).toEqual(['docs/guide.md']);
+    expect(scan.inlineCode).toContain('[name](url)');
+  });
+
+  it('does NOT extract a link inside a double-backtick span (F6)', () => {
+    const text = 'Use ``[text](path.md)`` to link.\n';
+    const scan = scanMarkdown(text);
+    expect(scan.linkTargets).toEqual([]);
+    expect(scan.inlineCode).toContain('[text](path.md)');
+  });
+
   it('inline code on a heading line is captured in inlineCode array', () => {
     // The heading is still a heading (F2 corollary); inline code is also captured.
     const text = '## Use `#` for comments\n';

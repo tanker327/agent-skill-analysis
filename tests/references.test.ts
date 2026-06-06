@@ -170,6 +170,64 @@ describe('analyzeReferences — resolved and broken', () => {
   });
 });
 
+describe('analyzeReferences — external references (F7)', () => {
+  it('a ../sibling reference that exists out-of-folder is external, NOT broken', () => {
+    // The hallmark F7 case: SKILL.md links to a sibling skill via `../`. The
+    // analyzer cannot see outside its folder, so this is out-of-scope, not a
+    // broken (author-error) link.
+    const body = 'Prereq: [shared](../lark-shared/SKILL.md).';
+    const { result, codes } = runReferences(body, ['SKILL.md']);
+    expect(result.external).toEqual(['../lark-shared/SKILL.md']);
+    expect(result.broken).toEqual([]);
+    expect(codes).toContain('external-ref');
+    expect(codes).not.toContain('broken-ref');
+  });
+
+  it('declared = resolved ∪ broken ∪ external (complete, disjoint)', () => {
+    const body =
+      '[ok](references/guide.md) [gone](references/gone.md) [sib](../other/SKILL.md)';
+    const { result } = runReferences(body, ['SKILL.md', 'references/guide.md']);
+    expect([...result.declared].sort()).toEqual(
+      [...result.resolved, ...result.broken, ...result.external].sort(),
+    );
+    expect(result.external).toEqual(['../other/SKILL.md']);
+  });
+
+  it('a .. path that normalizes back inside the folder is NOT external', () => {
+    // 'references/../guide.md' normalizes to 'guide.md' — it does not escape the
+    // folder, so it is treated as an in-folder reference, not external. (Raw-string
+    // resolution is unchanged: this non-canonical spelling lands in broken, not
+    // resolved — F7 only reclassifies escaping paths, it does not add normalization.)
+    const body = '[g](references/../guide.md)';
+    const { result } = runReferences(body, ['SKILL.md', 'guide.md']);
+    expect(result.external).toEqual([]);
+    expect(result.broken).toContain('references/../guide.md');
+  });
+
+  it('normalizes "." and empty path segments when deciding external vs internal', () => {
+    // A messy in-folder spelling with './' and '//' must normalize (dropping the
+    // '.' and '' segments) without escaping the folder → not external.
+    const body = '[x](.//refs/../keep.md)';
+    const { result } = runReferences(body, ['SKILL.md', 'keep.md']);
+    expect(result.external).toEqual([]);
+  });
+
+  it('a doubly-escaping ../../ reference is external (stacked .. normalization)', () => {
+    // '../../shared/x.md' climbs two levels above root — the '..' segments stack
+    // (cannot cancel), so it still escapes and is reported as external.
+    const body = '[x](../../shared/x.md)';
+    const { result } = runReferences(body, ['SKILL.md']);
+    expect(result.external).toEqual(['../../shared/x.md']);
+  });
+
+  it('external is sorted ascending and emits one external-ref per path', () => {
+    const body = '[b](../z/b.md) [a](../a/a.md)';
+    const { result, codes } = runReferences(body, ['SKILL.md']);
+    expect(result.external).toEqual(['../a/a.md', '../z/b.md']);
+    expect(codes.filter((c) => c === 'external-ref')).toHaveLength(2);
+  });
+});
+
 describe('analyzeReferences — orphans', () => {
   it('unreferenced file → appears in orphans', () => {
     const { result } = runReferences('Body with no links.', [
@@ -240,6 +298,26 @@ describe('analyzeReferences — orphans', () => {
   it('AGENTS.md stays excluded when SKILL.md is absent (null body)', () => {
     const { result } = runReferences(null, ['SKILL.md', 'AGENTS.md', 'notes.md']);
     expect(result.orphans).toEqual(['notes.md']);
+  });
+
+  it('root-level repo scaffolding docs are not orphans (CONTRIBUTING.md etc., F3)', () => {
+    // Community-health files document the project, not the skill, and appear when a
+    // skill folder is a repo root — they must not be flagged as orphans.
+    for (const name of [
+      'CONTRIBUTING.md',
+      'CHANGELOG.md',
+      'CODE_OF_CONDUCT.md',
+      'SECURITY.md',
+      'SPONSORS.md',
+    ]) {
+      const { result } = runReferences('Body with no links.', ['SKILL.md', name]);
+      expect(result.orphans).toEqual([]);
+    }
+  });
+
+  it('a NESTED scaffolding doc is still an orphan candidate — only the root file is excluded (F3)', () => {
+    const { result } = runReferences('Body with no links.', ['SKILL.md', 'docs/CONTRIBUTING.md']);
+    expect(result.orphans).toEqual(['docs/CONTRIBUTING.md']);
   });
 
   it('orphans are sorted ascending', () => {
@@ -470,6 +548,71 @@ describe('analyzeReferences — code-file chains (the reference graph crosses so
     );
     // Importing pkg.sub.mod executes both __init__.py files — package plumbing.
     expect(result.orphans).toEqual([]);
+  });
+
+  it('absolute import of a sibling package via sys.path resolves (F2: from validators import X)', () => {
+    // The docx-skill bug: `python scripts/office/pack.py` puts scripts/office on
+    // sys.path, so `from validators import X` reaches scripts/office/validators/.
+    // The only spelling present is the bare package name `validators` — neither the
+    // path nor a relative-import dot — so pythonSysPathImportForm must produce it.
+    const { result } = runReferences(
+      'Pack with `scripts/office/pack.py`.',
+      [
+        'SKILL.md',
+        'scripts/office/pack.py',
+        'scripts/office/validators/__init__.py',
+        'scripts/office/validators/base.py',
+      ],
+      null,
+      null,
+      docs({
+        'scripts/office/pack.py': 'from validators import DOCXValidator\n',
+        'scripts/office/validators/__init__.py': 'from .base import DOCXValidator\n',
+        'scripts/office/validators/base.py': 'class DOCXValidator: pass\n',
+      }),
+    );
+    // validators/__init__.py (via `from validators`) AND base.py (via the init's
+    // `.base` re-export) are both reachable — no false orphans.
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('absolute import of a sibling MODULE via sys.path resolves (F2: from helpers import x)', () => {
+    const { result } = runReferences(
+      'Run `scripts/office/pack.py`.',
+      ['SKILL.md', 'scripts/office/pack.py', 'scripts/office/helpers.py'],
+      null,
+      null,
+      docs({ 'scripts/office/pack.py': 'from helpers import merge\n' }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('a root-level source file does not import its own root package __init__ (F2 guard)', () => {
+    // Scanning a root-level source file (dir = '') against a root '__init__.py'
+    // candidate exercises the empty-module-path guard in pythonSysPathImportForm:
+    // the form would be the doc's own package, which it cannot import — so the
+    // root __init__.py is not rescued and stays an orphan.
+    const { result } = runReferences(
+      'Run `app.py`.',
+      ['SKILL.md', 'app.py', '__init__.py'],
+      null,
+      null,
+      docs({ 'app.py': 'print("hi")\n' }),
+    );
+    expect(result.orphans).toContain('__init__.py');
+  });
+
+  it('a bare sys.path form does NOT rescue a file OUTSIDE the importing dir (F2 guard)', () => {
+    // lib/x.py is NOT under scripts/office, so `from x import` in pack.py must not
+    // reach it (it would require '..' — not importable through this sys.path root).
+    const { result } = runReferences(
+      'Run `scripts/office/pack.py`.',
+      ['SKILL.md', 'scripts/office/pack.py', 'lib/x.py'],
+      null,
+      null,
+      docs({ 'scripts/office/pack.py': 'from x import thing\n' }),
+    );
+    expect(result.orphans).toEqual(['lib/x.py']);
   });
 
   it('parent-level relative import (..lib.x) connects across packages', () => {

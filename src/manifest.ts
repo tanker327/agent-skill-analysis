@@ -23,6 +23,7 @@
  * field = the file path. Never silent.
  */
 
+import { isRootReadme } from './docs.js';
 import type { DiagnosticCollector } from './diagnostics.js';
 import type { FileEntry, FileKind } from './schema.js';
 import type { SkillSource } from './source.js';
@@ -58,6 +59,9 @@ function classifyKind(
   if (path === 'SKILL.md') return 'instructions';
   if (readmePath !== null && path === readmePath) return 'readme';
   if (licensePath !== null && path === licensePath) return 'license';
+  // Localized README variants beyond the single detected one (README.en.md when
+  // README.md is the detected README) are still READMEs, not 'other' (F4).
+  if (isRootReadme(path)) return 'readme';
   // Use first path segment to classify by convention directory.
   // Destructuring default avoids noUncheckedIndexedAccess on split()[0].
   const [firstSegment = ''] = path.split('/');

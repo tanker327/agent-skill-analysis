@@ -818,9 +818,9 @@ describe('compatibility-too-long', () => {
 });
 
 describe('metadata-non-string', () => {
-  it('metadata value that is a number emits metadata-non-string (error)', async () => {
-    // Severity is ERROR per output doc §5: non-string metadata value is a spec
-    // violation, not a soft warning — output ok=false (team-lead ruling 2026-06-05).
+  it('metadata value that is a number emits metadata-non-string (warning, F5)', async () => {
+    // Severity is WARNING (F5): a non-string metadata value is a common authoring
+    // choice, not a skill-breaking spec violation — it must not force ok=false.
     const result = await analyze(
       mem({
         'SKILL.md':
@@ -829,9 +829,58 @@ describe('metadata-non-string', () => {
     );
     const diag = result.diagnostics.find((d) => d.code === 'metadata-non-string');
     expect(diag).toBeDefined();
-    expect(diag?.severity).toBe('error');
-    expect(result.ok).toBe(false);
+    expect(diag?.severity).toBe('warning');
+    expect(result.ok).toBe(true);
     expect(() => SkillAnalysisSchema.parse(result)).not.toThrow();
+  });
+
+  it('array metadata value is reported as type "array" and JSON-encoded (F5)', async () => {
+    // A YAML list (related_skills: [a, b, c]) is an array, NOT an object — the
+    // message must say "array", and the value JSON round-trips rather than being
+    // String()-joined. Severity warning → ok stays true.
+    const result = await analyze(
+      mem({
+        'SKILL.md':
+          '---\nname: arr-meta\ndescription: y.\nmetadata:\n  version: "1.0.0"\n  related_skills:\n    - a\n    - b\n    - c\n---\n\nBody.',
+      }),
+    );
+    const diag = result.diagnostics.find((d) => d.code === 'metadata-non-string');
+    expect(diag?.message).toContain('got array');
+    expect(diag?.message).not.toContain('got object');
+    expect(result.ok).toBe(true);
+    if (result.frontmatter.metadata !== null) {
+      expect(result.frontmatter.metadata['related_skills']).toBe('["a","b","c"]');
+    }
+  });
+
+  it('null metadata value is reported as type "null" (F5)', async () => {
+    // `empty:` with no value parses to YAML null — reported as 'null', not 'object'.
+    const result = await analyze(
+      mem({
+        'SKILL.md':
+          '---\nname: null-meta\ndescription: y.\nmetadata:\n  version: "1.0.0"\n  empty:\n---\n\nBody.',
+      }),
+    );
+    const diag = result.diagnostics.find((d) => d.code === 'metadata-non-string');
+    expect(diag?.message).toContain('got null');
+    if (result.frontmatter.metadata !== null) {
+      expect(result.frontmatter.metadata['empty']).toBe('null');
+    }
+  });
+
+  it('object metadata value is JSON-encoded, not "[object Object]" (F5)', async () => {
+    const result = await analyze(
+      mem({
+        'SKILL.md':
+          '---\nname: obj-meta\ndescription: y.\nmetadata:\n  version: "1.0.0"\n  config:\n    a: 1\n---\n\nBody.',
+      }),
+    );
+    const diag = result.diagnostics.find((d) => d.code === 'metadata-non-string');
+    expect(diag?.message).toContain('got object');
+    if (result.frontmatter.metadata !== null) {
+      expect(result.frontmatter.metadata['config']).toBe('{"a":1}');
+      expect(result.frontmatter.metadata['config']).not.toContain('[object Object]');
+    }
   });
 
   it('metadata value that is a boolean emits metadata-non-string (error)', async () => {
@@ -901,6 +950,31 @@ describe('metadata-non-string', () => {
 });
 
 describe('version-missing', () => {
+  it('top-level version is used when metadata.version is absent, no version-missing (F8)', async () => {
+    // `version: 1.0.0` at the top level (not under metadata) is a valid declaration;
+    // it must populate frontmatter.version and suppress version-missing. It also
+    // remains in `extra` verbatim (unknown-key preservation invariant).
+    const result = await analyze(
+      mem({
+        'SKILL.md': '---\nname: topver\ndescription: y.\nversion: 1.0.0\nmetadata: {}\n---\n\nBody.',
+      }),
+    );
+    expect(result.frontmatter.version).toBe('1.0.0');
+    expect(codes(result)).not.toContain('version-missing');
+    expect(result.frontmatter.extra['version']).toBe('1.0.0');
+  });
+
+  it('metadata.version takes precedence over a top-level version (F8)', async () => {
+    const result = await analyze(
+      mem({
+        'SKILL.md':
+          '---\nname: bothver\ndescription: y.\nversion: 9.9.9\nmetadata:\n  version: "2.0.0"\n---\n\nBody.',
+      }),
+    );
+    expect(result.frontmatter.version).toBe('2.0.0');
+    expect(codes(result)).not.toContain('version-missing');
+  });
+
   it('no metadata.version emits version-missing (warning)', async () => {
     const result = await analyze(
       mem({
@@ -1024,8 +1098,8 @@ describe('degradation matrix', () => {
   });
 
   // Row 4: Non-string metadata values — parse succeeds, but metadata map has type violations.
-  // Severity is ERROR per output doc §5 (team-lead ruling 2026-06-05); ok=false.
-  it('row 4: non-string metadata values → metadata-non-string error, values coerced, schema-valid', async () => {
+  // Severity is WARNING (F5): values are coerced/preserved; the skill is not failed.
+  it('row 4: non-string metadata values → metadata-non-string warning, values coerced, schema-valid', async () => {
     const result = await analyze(
       mem({
         'SKILL.md':
@@ -1034,8 +1108,8 @@ describe('degradation matrix', () => {
     );
     expect(codes(result)).toContain('metadata-non-string');
     const diag = result.diagnostics.find((d) => d.code === 'metadata-non-string');
-    expect(diag?.severity).toBe('error');
-    expect(result.ok).toBe(false); // error-level diagnostic → not ok
+    expect(diag?.severity).toBe('warning');
+    expect(result.ok).toBe(true); // warning-level diagnostic → still ok
     expect(() => SkillAnalysisSchema.parse(result)).not.toThrow();
   });
 });

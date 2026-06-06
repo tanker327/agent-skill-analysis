@@ -125,20 +125,29 @@ function extractLinkTargets(line: string): string[] {
 }
 
 /**
- * Extract inline code content from a single line (outside code fences).
- * Returns an empty array when no backtick spans are found.
+ * Mask inline code spans in a single line (outside code fences).
+ *
+ * Returns the line with every backtick span replaced by equal-length spaces,
+ * plus the extracted span contents in document order. Link extraction runs on
+ * the MASKED line so that a `[text](target)` pattern written INSIDE a code span
+ * — i.e. documentation OF link syntax, like `` `[name](url)` `` — is not
+ * mis-read as a real link target. The span content is still returned for the
+ * reference scanner's tier-2 backtick matching.
  */
-function extractInlineCode(line: string): string[] {
-  const items: string[] = [];
+function maskInlineCode(line: string): { masked: string; codes: string[] } {
+  const codes: string[] = [];
+  const chars = line.split('');
   INLINE_CODE_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = INLINE_CODE_RE.exec(line)) !== null) {
     // Group 1 = double-backtick content; group 2 = single-backtick content.
     // Both groups use [^`]+ so the '' fallback from group() signals "didn't match" —
     // whichever alternative matched is non-empty, so the || result always is too.
-    items.push(group(m, 1) || group(m, 2));
+    codes.push(group(m, 1) || group(m, 2));
+    // Blank the whole span (backticks included) so link extraction skips it.
+    for (let i = m.index; i < m.index + group(m, 0).length; i++) chars[i] = ' ';
   }
-  return items;
+  return { masked: codes.length === 0 ? line : chars.join(''), codes };
 }
 
 /**
@@ -218,8 +227,11 @@ export function scanMarkdown(text: string): MarkdownScan {
     }
 
     // Link targets and inline code (from all non-fence lines, including headings).
-    for (const t of extractLinkTargets(line)) linkTargets.push(t);
-    for (const c of extractInlineCode(line)) inlineCode.push(c);
+    // Mask inline-code spans first so a `[text](target)` written inside backticks
+    // (documentation of link syntax) is not extracted as a real link target.
+    const { masked, codes } = maskInlineCode(line);
+    for (const t of extractLinkTargets(masked)) linkTargets.push(t);
+    for (const c of codes) inlineCode.push(c);
   }
 
   // Unclosed fence at EOF: F2 — the trailing content was already skipped above.

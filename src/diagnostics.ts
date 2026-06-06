@@ -80,7 +80,11 @@ export const DIAGNOSTIC_REGISTRY = {
     message: 'Frontmatter "compatibility" exceeds the 500-character limit.',
   },
   'metadata-non-string': {
-    defaultSeverity: 'error',
+    // Warning, not error (F5): a non-string metadata value (e.g. a YAML list such
+    // as `related_skills: [a, b, c]`) is a common, reasonable authoring choice, not
+    // a skill-breaking spec violation. The value is preserved (JSON-stringified) and
+    // the type noted, but it must not fail the skill (ok=false).
+    defaultSeverity: 'warning',
     message: 'Frontmatter "metadata" values must be strings.',
     hint: 'Quote the value in YAML; the analyzer stringified it best-effort.',
   },
@@ -129,6 +133,14 @@ export const DIAGNOSTIC_REGISTRY = {
     defaultSeverity: 'warning',
     message: 'Referenced path does not exist in the skill.',
     hint: 'Fix the path or remove the reference from SKILL.md.',
+  },
+  'external-ref': {
+    // F7: a `../sibling/...` reference that escapes the skill folder. Not a
+    // broken link (the analyzer cannot see outside the folder, and these are
+    // legitimate in multi-skill packages) — reported as informational, never an error.
+    defaultSeverity: 'warning',
+    message: 'Referenced path is outside the skill folder and cannot be resolved here.',
+    hint: 'This is expected for cross-skill references; ensure the sibling exists in the package.',
   },
   'orphan-file': {
     defaultSeverity: 'warning',

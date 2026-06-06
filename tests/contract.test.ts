@@ -186,8 +186,8 @@ const COVERAGE_FIXTURES: Array<{
       'SKILL.md': `---\nname: longcompat\ndescription: y.\ncompatibility: "${'y'.repeat(501)}"\nmetadata:\n  version: "1.0.0"\n---\nBody.`,
     },
   },
-  // metadata-non-string: a metadata value is not a string — severity ERROR per output doc §5
-  // (non-string value is a spec violation; values are stringified in output, ok=false).
+  // metadata-non-string: a metadata value is not a string — severity WARNING (F5)
+  // (value is stringified/JSON-encoded in output and preserved; does NOT force ok=false).
   {
     label: 'non-string-metadata (→ metadata-non-string)',
     files: {
@@ -244,6 +244,17 @@ const COVERAGE_FIXTURES: Array<{
       'SKILL.md':
         '---\nname: broken-ref-skill\ndescription: y.\nmetadata:\n  version: "1.0.0"\n---\n\n' +
         'See [guide](references/nonexistent.md) for details.',
+      'README.md': '# Readme',
+      LICENSE: 'MIT License\n\nCopyright (c) 2026 test',
+    },
+  },
+  // external-ref (F7): body links to a `../sibling` path that escapes the folder.
+  {
+    label: 'external-ref (→ external-ref)',
+    files: {
+      'SKILL.md':
+        '---\nname: external-ref-skill\ndescription: y.\nmetadata:\n  version: "1.0.0"\n---\n\n' +
+        'Prerequisite: read [shared](../shared/SKILL.md) first.',
       'README.md': '# Readme',
       LICENSE: 'MIT License\n\nCopyright (c) 2026 test',
     },
