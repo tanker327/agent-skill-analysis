@@ -1,5 +1,6 @@
 # agent-skill-analysis
 
+[![CI](https://github.com/tanker327/agent-skill-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/tanker327/agent-skill-analysis/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Deterministic structural analysis of AI-agent skill folders: give it a skill (a `SKILL.md` plus its resources) and get back **one self-describing `SkillAnalysis` JSON** — same tree in, byte-identical JSON out, every time.
@@ -26,6 +27,22 @@ A single JSON document covering:
 - **Pure, portable JSON** — fully serializable, no class instances, no buffers; binary files surface only as `sha256` + `size`.
 - **Self-describing** — `schemaVersion` versions the JSON shape (semver; consumers branch compatibility on it), `analyzerVersion` is this library's version, `specVersion` is a date-tagged snapshot of the Agent Skills spec the validation targets (e.g. `agentskills-2025-12` — the spec itself carries no version number, so we don't invent one).
 - **Two runtime dependencies** — `yaml` and `zod`. Hashing is WebCrypto, markdown scanning is a hand-rolled line scanner, token counting is a built-in approximation. Runs on Node ≥ 20, Bun, Deno, browsers, and edge runtimes; only the optional `/node` subpath touches the filesystem.
+
+## Documentation
+
+| Guide                                              | Covers                                                                                  |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| [Library usage](docs/library-usage.md)             | the JS/TS API in detail — sources, every option, custom tokenizers, guarantees, recipes |
+| [CLI usage](docs/cli-usage.md)                     | the `asa` bin — pretty view explained, exit codes, `--json`, scripting recipes          |
+| [Annotated output example](docs/output-example.md) | a complete real `SkillAnalysis` JSON, explained field by field                          |
+
+## Install
+
+```bash
+npm install agent-skill-analysis
+```
+
+Node ≥ 20 for `fromDir` and the `asa` CLI; the core `analyze()`/`fromFiles` API also runs on Bun, Deno, browsers, and edge runtimes. Ships ESM + CJS with full type declarations.
 
 ## Usage
 
@@ -80,6 +97,8 @@ const analysis = await analyze(source, {
 
 **Severity is policy, not mechanism**: pipeline stages emit codes with library-default severities; your `rules` overrides are applied at the end, and `ok` is computed _after_ them. Promoting a warning to `error` flips `ok`; `'off'` removes the diagnostic entirely.
 
+More in [docs/library-usage.md](docs/library-usage.md): custom `SkillSource` implementations, a real tiktoken integration, CI-gate and registry-dedupe recipes.
+
 ### CLI
 
 The package ships an `asa` bin (Node only — it goes through `fromDir`):
@@ -94,6 +113,8 @@ asa                     # no argument: prints usage and exits 2
 ```
 
 Exit codes: `0` analyzed and `ok`, `1` analyzed but not `ok` (error-severity diagnostics remain), `2` usage or IO error. A folder with no `SKILL.md` is rejected up front as "not a skill folder" (exit `2`, nothing scanned) — that's CLI policy; `analyze()` itself still accepts such a tree and reports it through diagnostics. ANSI colors appear only on a TTY and respect [`NO_COLOR`](https://no-color.org); the `--json` output is the untouched contract — the pretty view is presentation only.
+
+A sample pretty report, the section-by-section reading guide, and `jq` scripting recipes live in [docs/cli-usage.md](docs/cli-usage.md).
 
 ## Tokens
 
@@ -228,7 +249,7 @@ Ignored files never enter the manifest, so **the same tree analyzed with a diffe
 
 ## Output contract
 
-The whole shape is defined by a single zod schema, `SkillAnalysisSchema` — exported, with every TypeScript type inferred from it (`SkillAnalysis`, `Diagnostic`, `FileEntry`, …). A JSON Schema artifact is generated at build time for non-TypeScript consumers. The schema is the source of truth: output-shape changes always land together with a schema change.
+The whole shape is defined by a single zod schema, `SkillAnalysisSchema` — exported, with every TypeScript type inferred from it (`SkillAnalysis`, `Diagnostic`, `FileEntry`, …). A JSON Schema artifact is generated at build time for non-TypeScript consumers. The schema is the source of truth: output-shape changes always land together with a schema change. A complete real output with every field explained: [docs/output-example.md](docs/output-example.md).
 
 - `schemaVersion` (`"1.0.0"`) — semver of the JSON shape; bumped on breaking shape **or digest-semantics** changes once published.
 - `analyzerVersion` — this library's own version.
@@ -238,11 +259,13 @@ The whole shape is defined by a single zod schema, `SkillAnalysisSchema` — exp
 
 ```bash
 npm install
-npm test          # run tests
-npm run lint      # lint
-npm run typecheck # type-check
-npm run build     # build ESM + CJS + types to dist/
+npm run lint           # eslint
+npm run typecheck      # tsc --noEmit
+npm test               # vitest (npm run test:coverage for the per-file 100% gate)
+npm run build          # ESM + CJS + types + JSON Schema artifact to dist/
 ```
+
+The CI gate is all four in that order — a green `npm test` alone is not a green gate (vitest does not typecheck). Coverage thresholds are a per-file 100% ratchet; CI runs the chain on Node 20 and 22.
 
 ## Contributing
 
