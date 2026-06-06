@@ -140,12 +140,6 @@ export function normalizeFrontmatter(
   raw: Record<string, unknown>,
   collector: DiagnosticCollector,
 ): Frontmatter {
-  // Collect unknown keys verbatim — §3.1 output doc: must not warn.
-  const extra: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(raw)) {
-    if (!KNOWN_KEYS.has(k)) extra[k] = v;
-  }
-
   // metadata: must be a plain object; each value must be string.
   let metadata: Record<string, string> | null = null;
   const rawMeta = raw['metadata'];
@@ -179,18 +173,31 @@ export function normalizeFrontmatter(
 
   // version: hoisted from metadata.version, falling back to a top-level `version`
   // key (F8) when metadata.version is absent — an author who put `version:` at the
-  // top level clearly declared one, so it must not trigger version-missing. The
-  // top-level key still remains in `extra` verbatim (same as metadata.version stays
-  // in metadata). Kept as a string ("1.10" must not become 1.1); a non-string
-  // top-level version (e.g. the number 1.0) is ignored, matching metadata behavior.
-  const version: string | null = metadata?.['version'] ?? toStringOrNull(raw['version']);
+  // top level clearly declared one, so it must not trigger version-missing. Kept as
+  // a string ("1.10" must not become 1.1); a non-string top-level version (e.g. the
+  // number 1.0) is ignored, matching metadata behavior.
+  const topLevelVersion = toStringOrNull(raw['version']);
+  const version: string | null = metadata?.['version'] ?? topLevelVersion;
+  // F11: when a top-level `version` is hoisted into frontmatter.version it becomes a
+  // recognized field, so it must NOT also be duplicated into `extra` (which holds
+  // only unrecognized keys). Only suppress it from extra when it was actually used.
+  const versionHoistedFromTopLevel = metadata?.['version'] == null && topLevelVersion !== null;
 
-  // allowed-tools: split space-separated string into array (O1).
-  // Also accept a YAML sequence for robustness.
+  // Collect unknown keys verbatim — §3.1 output doc: must not warn.
+  const extra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (KNOWN_KEYS.has(k)) continue;
+    if (k === 'version' && versionHoistedFromTopLevel) continue;
+    extra[k] = v;
+  }
+
+  // allowed-tools: split a scalar string into tools (O1). Authors write the list
+  // either space- OR comma-separated ("Read, Grep, Glob"); split on both so commas
+  // never glue onto a tool name (F9). Also accept a YAML sequence for robustness.
   let allowedTools: string[] | null = null;
   const rawTools = raw['allowed-tools'];
   if (typeof rawTools === 'string') {
-    const parts = rawTools.trim().split(/\s+/).filter(Boolean);
+    const parts = rawTools.trim().split(/[\s,]+/).filter(Boolean);
     if (parts.length > 0) allowedTools = parts;
   } else if (Array.isArray(rawTools)) {
     const parts = rawTools.filter((t): t is string => typeof t === 'string');

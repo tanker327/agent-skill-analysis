@@ -142,6 +142,36 @@ describe('analyzeReferences — resolved and broken', () => {
     expect(result.resolved).not.toContain('references/missing.md');
   });
 
+  it('a directory reference resolves, not broken, when the directory exists (F10)', () => {
+    // [templates/](templates/) points at a real directory — no file path equals
+    // 'templates/', but the dir exists in the tree, so it must resolve.
+    const body = 'Init from [templates/](templates/).';
+    const { result, codes } = runReferences(body, [
+      'SKILL.md',
+      'templates/a.md',
+      'templates/b.yaml',
+    ]);
+    expect(result.resolved).toContain('templates/');
+    expect(result.broken).toEqual([]);
+    expect(codes).not.toContain('broken-ref');
+  });
+
+  it('a nested directory reference resolves (F10)', () => {
+    const body = '[pack](bold-template-pack/templates/)';
+    const { result } = runReferences(body, [
+      'SKILL.md',
+      'bold-template-pack/templates/x/preview.md',
+    ]);
+    expect(result.resolved).toContain('bold-template-pack/templates/');
+    expect(result.broken).toEqual([]);
+  });
+
+  it('a reference to a NON-existent directory is still broken (F10 boundary)', () => {
+    const body = '[gone](missing-dir/)';
+    const { result } = runReferences(body, ['SKILL.md', 'templates/a.md']);
+    expect(result.broken).toContain('missing-dir/');
+  });
+
   it('declared = resolved ∪ broken (disjoint, complete)', () => {
     const body = '[exists](references/guide.md) [gone](references/gone.md)';
     const { result } = runReferences(body, ['SKILL.md', 'references/guide.md']);

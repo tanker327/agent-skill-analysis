@@ -421,9 +421,24 @@ export function analyzeReferences(
   const external = declared.filter(escapesRoot);
   const internal = declared.filter((p) => !escapesRoot(p));
 
+  // Directory prefixes present in the tree, so a link to a DIRECTORY
+  // ('[templates](templates/)') resolves instead of being reported broken (F10):
+  // `templates/` is no file path, but it IS a real directory the link points at.
+  const dirSet = new Set<string>();
+  for (const fp of allPaths) {
+    for (let d = dirnamePosix(fp); d !== ''; d = dirnamePosix(d)) dirSet.add(d);
+  }
+  // A declared path resolves when it is a file in the tree OR a directory in it
+  // (trailing slash stripped). Directories are real reference targets.
+  const resolvesInTree = (p: string): boolean => {
+    if (allPathsSet.has(p)) return true;
+    const noSlash = p.endsWith('/') ? p.slice(0, -1) : p;
+    return dirSet.has(noSlash);
+  };
+
   // resolved / broken split the in-folder references against the full path set.
-  const resolved = internal.filter((p) => allPathsSet.has(p));
-  const broken = internal.filter((p) => !allPathsSet.has(p));
+  const resolved = internal.filter(resolvesInTree);
+  const broken = internal.filter((p) => !resolvesInTree(p));
 
   // Emit broken-ref for missing in-folder paths and external-ref for escapes.
   for (const p of broken) {

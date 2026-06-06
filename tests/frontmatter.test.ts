@@ -152,6 +152,30 @@ describe('normalizeFrontmatter', () => {
     expect(fm.allowedTools).toEqual(['Bash']);
   });
 
+  it('allowed-tools comma-separated string splits cleanly, no trailing commas (F9)', () => {
+    // The common authoring form `A, B, C` must not glue commas onto tool names.
+    const collector = new DiagnosticCollector();
+    const fm = normalizeFrontmatter(
+      { 'allowed-tools': 'Bash(*), Read, Grep, Glob, Skill(run-experiment)' },
+      collector,
+    );
+    expect(fm.allowedTools).toEqual(['Bash(*)', 'Read', 'Grep', 'Glob', 'Skill(run-experiment)']);
+  });
+
+  it('allowed-tools handles comma, space, and mixed delimiters (F9)', () => {
+    const collector = new DiagnosticCollector();
+    expect(normalizeFrontmatter({ 'allowed-tools': 'A,B,C' }, collector).allowedTools).toEqual([
+      'A',
+      'B',
+      'C',
+    ]);
+    expect(normalizeFrontmatter({ 'allowed-tools': 'A,  B ,C' }, collector).allowedTools).toEqual([
+      'A',
+      'B',
+      'C',
+    ]);
+  });
+
   // YAML sequence (array) form of allowed-tools — covers the Array.isArray branch in normalizeFrontmatter
   it('allowed-tools as a YAML sequence (string[]) is parsed correctly', () => {
     const collector = new DiagnosticCollector();
@@ -961,7 +985,16 @@ describe('version-missing', () => {
     );
     expect(result.frontmatter.version).toBe('1.0.0');
     expect(codes(result)).not.toContain('version-missing');
-    expect(result.frontmatter.extra['version']).toBe('1.0.0');
+    // F11: a hoisted top-level version is recognized → it must NOT also sit in extra.
+    expect(result.frontmatter.extra).not.toHaveProperty('version');
+  });
+
+  it('a non-string top-level version is NOT hoisted and stays in extra (F11 boundary)', () => {
+    // YAML number 1.0 → not a string → not hoisted; it remains an unrecognized key.
+    const collector = new DiagnosticCollector();
+    const fm = normalizeFrontmatter({ name: 'x', description: 'y', version: 1.0 }, collector);
+    expect(fm.version).toBeNull();
+    expect(fm.extra['version']).toBe(1.0);
   });
 
   it('metadata.version takes precedence over a top-level version (F8)', async () => {
