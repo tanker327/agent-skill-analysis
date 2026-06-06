@@ -1,6 +1,8 @@
 # agent-skill-analysis
 
+[![npm version](https://img.shields.io/npm/v/agent-skill-analysis.svg)](https://www.npmjs.com/package/agent-skill-analysis)
 [![CI](https://github.com/tanker327/agent-skill-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/tanker327/agent-skill-analysis/actions/workflows/ci.yml)
+[![node >= 20](https://img.shields.io/node/v/agent-skill-analysis.svg)](https://www.npmjs.com/package/agent-skill-analysis)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Deterministic structural analysis of AI-agent skill folders: give it a skill (a `SKILL.md` plus its resources) and get back **one self-describing `SkillAnalysis` JSON** — same tree in, byte-identical JSON out, every time.
@@ -38,11 +40,15 @@ A single JSON document covering:
 
 ## Install
 
+Available on npm as [`agent-skill-analysis`](https://www.npmjs.com/package/agent-skill-analysis):
+
 ```bash
-npm install agent-skill-analysis
+npm install agent-skill-analysis        # library (analyze, fromFiles, fromDir)
+npm install -g agent-skill-analysis     # global install for the asa CLI
+npx -p agent-skill-analysis asa ./my-skill   # or run the CLI without installing
 ```
 
-Node ≥ 20 for `fromDir` and the `asa` CLI; the core `analyze()`/`fromFiles` API also runs on Bun, Deno, browsers, and edge runtimes. Ships ESM + CJS with full type declarations.
+Node ≥ 20 for `fromDir` and the `asa` CLI; the core `analyze()`/`fromFiles` API also runs on Bun, Deno, browsers, and edge runtimes. Ships ESM + CJS with full type declarations, plus the [JSON Schema artifact](#json-schema-artifact-for-non-typescript-consumers) at `dist/skill-analysis.schema.json`.
 
 ## Usage
 
