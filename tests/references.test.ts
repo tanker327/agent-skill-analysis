@@ -410,6 +410,84 @@ describe('analyzeReferences — python module form', () => {
   });
 });
 
+describe('analyzeReferences — code-file chains (the reference graph crosses source files)', () => {
+  const docs = (entries: Record<string, string>) => new Map(Object.entries(entries));
+
+  it('md → a.py → b.py → c.py: the whole import chain connects', () => {
+    const { result } = runReferences(
+      'Run `scripts/a.py` to start.',
+      ['SKILL.md', 'scripts/a.py', 'scripts/b.py', 'scripts/c.py'],
+      null,
+      null,
+      docs({
+        'scripts/a.py': 'from scripts.b import main\n', // absolute dotted import
+        'scripts/b.py': 'from .c import helper\n', // relative import
+        'scripts/c.py': 'def helper(): pass\n',
+      }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('a reachable script rescues a data file it opens by name', () => {
+    const { result } = runReferences(
+      'Use `eval-viewer/generate_review.py` to render results.',
+      ['SKILL.md', 'eval-viewer/generate_review.py', 'eval-viewer/viewer.html'],
+      null,
+      null,
+      docs({
+        'eval-viewer/generate_review.py': 'template_path = Path(__file__).parent / "viewer.html"\n',
+      }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('a reachable python module marks its ancestor __init__.py reachable', () => {
+    const { result } = runReferences(
+      'Run `pkg/sub/mod.py` directly.',
+      ['SKILL.md', 'pkg/__init__.py', 'pkg/sub/__init__.py', 'pkg/sub/mod.py'],
+      null,
+      null,
+      docs({ 'pkg/sub/mod.py': 'print(1)\n' }),
+    );
+    // Importing pkg.sub.mod executes both __init__.py files — package plumbing.
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('js require chain connects', () => {
+    const { result } = runReferences(
+      'Start with `lib/a.js`.',
+      ['SKILL.md', 'lib/a.js', 'lib/b.js'],
+      null,
+      null,
+      docs({ 'lib/a.js': "const b = require('./b');\n" }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('an UNREACHABLE script does not rescue its imports', () => {
+    const { result } = runReferences(
+      'No file mentions here.',
+      ['SKILL.md', 'scripts/a.py', 'scripts/b.py'],
+      null,
+      null,
+      docs({ 'scripts/a.py': 'from scripts.b import x\n' }),
+    );
+    expect(result.orphans).toEqual(['scripts/a.py', 'scripts/b.py']);
+  });
+
+  it('__init__.py of an untouched sibling package stays an orphan', () => {
+    const { result } = runReferences(
+      'Run `scripts/run.py` now.',
+      ['SKILL.md', 'other/__init__.py', 'scripts/run.py'],
+      null,
+      null,
+      docs({ 'scripts/run.py': 'print(1)\n' }),
+    );
+    // other/ has no reachable module — its __init__.py is not plumbing for anything.
+    expect(result.orphans).toEqual(['other/__init__.py']);
+  });
+});
+
 describe('analyzeReferences — JS/TS import specifier form', () => {
   it("require('./scripts/utils') matches scripts/utils.js", () => {
     const body = "Load helpers with `require('./scripts/utils')` first.";
@@ -561,6 +639,23 @@ describe('references — integration (analyze)', () => {
     // The contract arrays stay direct-from-SKILL.md.
     expect(result.references.declared).toEqual(['references/guide.md']);
     expect(result.diagnostics.filter((d) => d.code === 'orphan-file')).toHaveLength(1);
+  });
+
+  it('code chain via analyze(): md → a.py → b.py → c.py plus __init__.py all connect', async () => {
+    const result = await analyze(
+      mem({
+        'SKILL.md': FM + 'Run `scripts/a.py` to start.',
+        'README.md': '# R',
+        LICENSE: 'MIT',
+        'scripts/__init__.py': '',
+        'scripts/a.py': 'from scripts.b import main\n',
+        'scripts/b.py': 'from .c import helper\n',
+        'scripts/c.py': 'def helper(): pass\n',
+      }),
+    );
+    expect(() => SkillAnalysisSchema.parse(result)).not.toThrow();
+    expect(result.references.orphans).toEqual([]);
+    expect(result.diagnostics.filter((d) => d.code === 'orphan-file')).toEqual([]);
   });
 
   it('a binary .md file resolves but is never scanned for onward references', async () => {

@@ -13,35 +13,41 @@
  *   broken    — declared paths that do NOT exist in files[], sorted ascending.
  *               Emits 'broken-ref' (warning) for each broken path.
  *
- *   orphans   — files not referenced from SKILL.md or any markdown document
- *               transitively reachable from it (SKILL.md, README, LICENSE
- *               excluded from candidates).
- *               Emits 'orphan-file' (warning) for each orphan path.
+ *   orphans   — files not reachable from SKILL.md through any chain of
+ *               references (SKILL.md, README, LICENSE excluded from
+ *               candidates). Emits 'orphan-file' (warning) per orphan path.
  *
  * Transitive reachability (orphan check ONLY — declared/resolved/broken stay
  * direct-from-SKILL.md by design):
- *   BFS from the SKILL.md body through every referenced markdown doc whose
- *   text was supplied in `docTexts`. A candidate counts as referenced when ANY
- *   reachable doc mentions it under an accepted spelling:
+ *   BFS from the SKILL.md body through every referenced text file whose text
+ *   was supplied in `fileTexts` — markdown docs AND source files alike, so
+ *   SKILL.md → guide.md → a.py → b.py chains all connect. A candidate counts
+ *   as referenced when ANY reachable file mentions it under an accepted
+ *   spelling:
  *     • its root-relative path;
- *     • the path written relative to the mentioning doc's own directory
- *       (how markdown links are normally authored), optionally './'-anchored;
+ *     • the path written relative to the mentioning file's own directory
+ *       (markdown links, code-level relative paths), optionally './'-anchored;
  *     • the extensionless JS/TS import specifier ('scripts/utils' for
  *       scripts/utils.js — require()/import style), same variants, skipped
  *       when ambiguous;
  *     • its bare basename, when exactly one tree file owns that basename and
  *       it contains a '.' (ambiguity or extensionless names never match);
  *     • the `python -m` dotted module form for non-root .py files
- *       ('scripts/run_eval.py' ← 'scripts.run_eval').
- *   Docs that are not themselves reachable from SKILL.md
- *   are never scanned: under progressive disclosure an agent can only find
- *   files by following links from SKILL.md, so a mention inside an unreachable
- *   doc must not silence a legitimate orphan warning.
+ *       ('scripts/run_eval.py' ← 'scripts.run_eval'), and the relative-import
+ *       form seen from the scanning file ('.utils', '..lib.x').
+ *   Plus python package plumbing: a reachable module marks its ancestor
+ *   packages' __init__.py reachable (imports execute them).
+ *   Files that are not themselves reachable from SKILL.md are never scanned:
+ *   an agent can only find files by following references from SKILL.md, so a
+ *   mention inside an unreachable file must not silence a legitimate orphan
+ *   warning.
  *
- * Reference detection (per scanned doc) uses three complementary strategies:
+ * Reference detection per scanned markdown file uses three complementary
+ * strategies (non-markdown text files use tier 3 only — running the markdown
+ * scanner on source code would extract meaningless links/spans):
  *   1. Exact match in scanMarkdown linkTargets (explicit markdown links).
  *   2. Exact match in scanMarkdown inlineCode spans (backtick mentions).
- *   3. Path-boundary word match in the raw doc text — NOT bare substring.
+ *   3. Path-boundary word match in the raw text — NOT bare substring.
  *
  * Path-boundary matching (R4 — short-path collision prevention):
  *   A file at 'references/guide.md' is matched by the pattern:
@@ -129,6 +135,21 @@ function pythonModuleForm(p: string): string | null {
   return p.slice(0, -'.py'.length).split('/').join('.');
 }
 
+/**
+ * The relative-import spelling of a .py candidate as written from a file in
+ * `fromDir`: scripts/utils.py seen from scripts/ → '.utils';
+ * lib/x.py seen from scripts/ → '..lib.x' (one extra leading dot per '../').
+ * Null for non-.py candidates.
+ */
+function pythonRelativeImportForm(fromDir: string, p: string): string | null {
+  if (!p.endsWith('.py')) return null;
+  const rel = relativeFromDir(fromDir, p.slice(0, -'.py'.length));
+  const segs = rel.split('/');
+  let ups = 0;
+  while (ups < segs.length && segs[ups] === '..') ups++;
+  return '.'.repeat(ups + 1) + segs.slice(ups).join('.');
+}
+
 /** Extensions whose files are imported by extensionless specifier in JS/TS. */
 const JS_EXTENSION_RE = /\.(?:js|mjs|cjs|jsx|ts|mts|cts|tsx)$/;
 
@@ -211,11 +232,12 @@ export interface ReferencesResult {
  * @param readmePath  Detected README path (from docs stage) or null.
  * @param licensePath Detected LICENSE path (from docs stage) or null.
  * @param collector   Receives 'broken-ref' and 'orphan-file' diagnostics.
- * @param docTexts    Decoded text of scannable companion docs, keyed by
- *                    root-relative path (analyze.ts supplies the in-manifest
- *                    `*.md` files; SKILL.md itself is `bodyText`). Only docs in
- *                    this map that are reachable from SKILL.md are scanned for
- *                    the transitive orphan check — keeps this stage pure (no IO).
+ * @param fileTexts   Decoded text of scannable files, keyed by root-relative
+ *                    path (analyze.ts supplies every in-manifest text file —
+ *                    markdown, source code, html, …; SKILL.md itself is
+ *                    `bodyText`). Only files in this map that are reachable
+ *                    from SKILL.md are scanned for the transitive orphan
+ *                    check — keeps this stage pure (no IO).
  */
 export function analyzeReferences(
   bodyText: string | null,
@@ -223,7 +245,7 @@ export function analyzeReferences(
   readmePath: string | null,
   licensePath: string | null,
   collector: DiagnosticCollector,
-  docTexts: ReadonlyMap<string, string> = new Map(),
+  fileTexts: ReadonlyMap<string, string> = new Map(),
 ): ReferencesResult {
   // Build the exclusion set for orphan candidates.
   const excluded = new Set(STATIC_ORPHAN_EXCLUSIONS);
@@ -261,12 +283,13 @@ export function analyzeReferences(
   }
 
   // ── Transitive reachability (orphan check only) ────────────────────────────
-  // BFS from SKILL.md through referenced markdown docs. `scannedDocs` is the
-  // worklist; for-of visits entries appended during iteration. Each doc checks
-  // every tree path under its accepted spellings (see below). A doc that is
-  // mentioned and has text in docTexts joins the worklist exactly once
-  // (`enqueued`). Deterministic: allPaths is sorted, reachability is
-  // order-independent, and docTexts is lookup-only.
+  // BFS from SKILL.md through every referenced text file — markdown docs AND
+  // source files (SKILL.md → guide.md → a.py → b.py chains all connect).
+  // `scannedDocs` is the worklist; for-of visits entries appended during
+  // iteration. Each scanned file checks every tree path under its accepted
+  // spellings (see below). A referenced file with text in fileTexts joins the
+  // worklist exactly once (`enqueued`). Deterministic: allPaths is sorted,
+  // reachability is order-independent, and fileTexts is lookup-only.
 
   // Spellings per path come in two kinds:
   //
@@ -307,11 +330,46 @@ export function analyzeReferences(
     fixedForms.set(p, fixed);
   }
 
+  // Markdown files get the full three-tier scan; other text files (source
+  // code, html, …) match on raw text only — running the markdown scanner on
+  // python source would extract meaningless "links" and code spans.
+  const EMPTY_SCAN: ReturnType<typeof scanMarkdown> = {
+    headings: [],
+    linkTargets: [],
+    inlineCode: [],
+  };
+  const scanFor = (path: string, text: string): ReturnType<typeof scanMarkdown> =>
+    path.toLowerCase().endsWith('.md') ? scanMarkdown(text) : EMPTY_SCAN;
+
   const scannedDocs: { dir: string; scan: ReturnType<typeof scanMarkdown>; text: string }[] = [
     { dir: '', scan, text: bodyText },
   ];
   const enqueued = new Set(['SKILL.md']);
   const referenced = new Set<string>();
+
+  /** A referenced file with available text joins the worklist exactly once. */
+  const enqueue = (path: string): void => {
+    const text = fileTexts.get(path);
+    if (text === undefined || enqueued.has(path)) return;
+    enqueued.add(path);
+    scannedDocs.push({ dir: dirnamePosix(path), scan: scanFor(path, text), text });
+  };
+
+  /**
+   * Python package plumbing: importing a module executes every __init__.py on
+   * its package path, so a reachable module makes its ancestor packages'
+   * __init__.py reachable (and scannable — they often re-export submodules).
+   */
+  const markPythonPackageInits = (p: string): void => {
+    if (!p.endsWith('.py')) return;
+    for (let dir = dirnamePosix(p); dir !== ''; dir = dirnamePosix(dir)) {
+      const init = `${dir}/__init__.py`;
+      if (allPathsSet.has(init) && !referenced.has(init)) {
+        referenced.add(init);
+        enqueue(init);
+      }
+    }
+  };
 
   for (const doc of scannedDocs) {
     for (const p of allPaths) {
@@ -329,6 +387,10 @@ export function analyzeReferences(
         // valid for the doc-relative form; '../' spellings need no anchor.
         if (!rel.startsWith('../')) forms.add(`./${rel}`);
       }
+      // Python relative-import spelling ('from .utils import x') — relative to
+      // the scanning file's own package directory.
+      const pyRel = pythonRelativeImportForm(doc.dir, p);
+      if (pyRel !== null) forms.add(pyRel);
       let hit = false;
       for (const form of forms) {
         if (isReferenced(form, doc.scan.linkTargets, doc.scan.inlineCode, doc.text)) {
@@ -338,11 +400,8 @@ export function analyzeReferences(
       }
       if (!hit) continue;
       referenced.add(p);
-      const text = docTexts.get(p);
-      if (text !== undefined && !enqueued.has(p)) {
-        enqueued.add(p);
-        scannedDocs.push({ dir: dirnamePosix(p), scan: scanMarkdown(text), text });
-      }
+      markPythonPackageInits(p);
+      enqueue(p);
     }
   }
 

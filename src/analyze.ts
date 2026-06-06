@@ -137,15 +137,16 @@ export async function analyze(
   // Stage ⑩: reference graph — declared/resolved/broken/orphans (P4).
   // Pass the full post-ignore path list (stage ①) so that over-limit files
   // (absent from manifest.files) still resolve correctly when linked from body.
-  // docTexts feeds the transitive orphan check: in-manifest markdown files
-  // (text, within size limit — over-limit/binary md never join the scan),
-  // decoded here so the references stage stays pure. Only docs reachable from
-  // SKILL.md are actually scanned (SKILL.md → guide.md → script.py chains).
-  const docTexts = new Map<string, string>();
+  // fileTexts feeds the transitive orphan check: every in-manifest text file
+  // (within size limit — over-limit/binary files never join the scan),
+  // decoded here so the references stage stays pure. Only files reachable
+  // from SKILL.md are actually scanned, following both doc and code chains
+  // (SKILL.md → guide.md → a.py → b.py).
+  const fileTexts = new Map<string, string>();
   for (const f of manifest.files) {
-    if (f.path !== 'SKILL.md' && f.isText && f.path.toLowerCase().endsWith('.md')) {
+    if (f.path !== 'SKILL.md' && f.isText) {
       const bytes = await source.read(f.path);
-      docTexts.set(f.path, new TextDecoder('utf-8', { fatal: false }).decode(bytes));
+      fileTexts.set(f.path, new TextDecoder('utf-8', { fatal: false }).decode(bytes));
     }
   }
   const references = analyzeReferences(
@@ -154,7 +155,7 @@ export async function analyze(
     readmePath,
     licensePath,
     collector,
-    docTexts,
+    fileTexts,
   );
 
   // Stage: digest (P5). computeDigest re-parses the SKILL.md YAML block fresh

@@ -132,8 +132,8 @@ export const DIAGNOSTIC_REGISTRY = {
   },
   'orphan-file': {
     defaultSeverity: 'warning',
-    message: 'File is present but not referenced from SKILL.md or any document reachable from it.',
-    hint: 'Reference it from SKILL.md (directly or via a linked doc) or remove it to keep the skill lean.',
+    message: 'File is not reachable from SKILL.md through any chain of references.',
+    hint: 'Reference it from SKILL.md (directly, or via a reachable doc or script) or remove it to keep the skill lean.',
   },
   'file-too-large': {
     // F4: over-limit files are skipped from hashing, but NEVER silently.
