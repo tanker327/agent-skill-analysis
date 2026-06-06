@@ -23,7 +23,7 @@ import { z } from 'zod';
 export const SCHEMA_VERSION = '1.0.0';
 
 /** Semver of this library; kept in lockstep with package.json "version". */
-export const ANALYZER_VERSION = '0.1.0';
+export const ANALYZER_VERSION = '1.0.0';
 
 /** Agent Skills spec snapshot this analyzer targets (R6: date label — the spec has no version number). */
 export const SPEC_VERSION = 'agentskills-2025-12';

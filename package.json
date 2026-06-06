@@ -1,6 +1,6 @@
 {
   "name": "agent-skill-analysis",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Deterministic structural analysis of AI-agent skill folders (SKILL.md + resources) into a single self-describing SkillAnalysis JSON",
   "keywords": [
     "claude",

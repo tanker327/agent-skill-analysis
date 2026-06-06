@@ -53,7 +53,7 @@ Note the three planted findings: a link to `references/gone.md` (which doesn't e
 ```json
 {
   "schemaVersion": "1.0.0",
-  "analyzerVersion": "0.1.0",
+  "analyzerVersion": "1.0.0",
   "specVersion": "agentskills-2025-12",
   "ok": true,
   "dir": "pdf-tools",
@@ -197,7 +197,7 @@ Note the three planted findings: a link to `references/gone.md` (which doesn't e
 | Field             | Here                    | Meaning                                                                |
 | ----------------- | ----------------------- | ---------------------------------------------------------------------- |
 | `schemaVersion`   | `"1.0.0"`               | the **output contract** version — consumers key compatibility off this |
-| `analyzerVersion` | `"0.1.0"`               | the library version that produced the output                           |
+| `analyzerVersion` | `"1.0.0"`               | the library version that produced the output                           |
 | `specVersion`     | `"agentskills-2025-12"` | which Agent Skills spec snapshot the validation rules encode           |
 
 Three different versions because they evolve independently: the contract can be stable while the analyzer fixes bugs, and the checks can track a new spec without reshaping the output.
