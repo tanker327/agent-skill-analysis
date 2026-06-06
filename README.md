@@ -15,7 +15,7 @@ A single JSON document covering:
 - **Body** — full text, line count, heading outline (code fences respected), and token estimates.
 - **Docs** — README detection; LICENSE detection with two-stage SPDX recognition (frontmatter allowlist, then file-header signatures).
 - **Files** — per-file manifest: `path`, `size`, `sha256` (true byte hash), `kind` (`instructions` / `reference` / `script` / `asset` / `readme` / `license` / `other`), `isText`.
-- **References** — which files `SKILL.md` actually points at: `declared`, `resolved`, `broken`, and `orphans`.
+- **References** — which files `SKILL.md` actually points at: `declared`, `resolved`, `broken`, `external`, and `orphans`.
 - **Size** — total bytes plus a by-kind breakdown (resource weight vs instruction weight).
 - **Digest** — a content fingerprint that ignores `metadata.version` bumps (authoritative definition below).
 - **Diagnostics** — every problem becomes a `{ code, severity, message }` entry with a stable code; severity is overridable per consumer.
@@ -65,7 +65,7 @@ const analysis2 = await analyze(
 analysis.ok; // true iff no error-severity diagnostics remain
 analysis.frontmatter; // name, description, version, allowedTools, metadata, extra
 analysis.tokens; // { metadata, body, total, tokenizer }
-analysis.references; // { declared, resolved, broken, orphans }
+analysis.references; // { declared, resolved, broken, external, orphans }
 analysis.diagnostics; // [{ code: 'readme-missing', severity: 'warning', … }]
 analysis.digest; // 'sha256:…' content fingerprint
 ```
@@ -156,11 +156,11 @@ Budget diagnostics use the exported constants `BODY_TOKEN_LIMIT` (4,000 tokens �
 The reference graph is built with two deliberately different techniques (F3):
 
 - **`orphans` (low false-positive — the primary signal):** for each file that actually exists (SKILL.md/README/LICENSE excluded, plus root-level convention files like `AGENTS.md` that agents read by name rather than by reference), check whether it is **reachable from SKILL.md through any chain of references** — the walk crosses markdown docs _and_ text source files alike, so `SKILL.md → guide.md → a.py → b.py → c.py` all connect (an agent following references can find each file). Accepted spellings per mention: the root-relative path, the path relative to the mentioning file (optionally `./`-anchored), the extensionless JS/TS import specifier (`scripts/utils` for `scripts/utils.js`, as in `require()`/`import` — skipped when ambiguous, e.g. `utils.js` + `utils.ts`), the bare basename when exactly **one** tree file owns it (and it contains a `.` — ambiguous or extensionless names never match), and the Python import forms: `python -m` dotted (`scripts.run_eval`, non-root files only) and relative (`.utils`, `..lib.x`). A reachable Python module also marks its ancestor packages' `__init__.py` reachable (imports execute them). All matching is on path tokens/word boundaries, not bare substrings, so `a.md` doesn't match inside `data.md` (R4) — with one shell-aware exception: a dynamic prefix (`"$SCRIPT_DIR/utils.sh"`, `"$(dirname "$0")/cleanup.sh"`, `"${DIR}/x.sh"`) counts as a boundary, so shell chains (`run.sh` → `source ./helper.sh`) connect like any other source file; plain `dir/` prefixes still never match. Files that are themselves unreachable from SKILL.md are never scanned — a mention there can't rescue an orphan.
-- **`broken` (high false-positive — warning only):** parse markdown link targets and inline-code path strings out of the body to get `declared`; `broken = declared − files`. Prose examples that merely _look_ like paths can land here, which is exactly why `broken-ref` is warning-severity and never flips `ok` by default.
+- **`broken` (high false-positive — warning only):** parse markdown link targets and inline-code path strings out of the body to get `declared`; paths that escape the skill folder (`../sibling/...`) are split off into `external` (each emits an `external-ref` warning — the analyzer can't see outside the folder, so they are out-of-scope rather than broken), and `broken` is what's left that doesn't exist in the tree. Prose examples that merely _look_ like paths can land here, which is exactly why `broken-ref` is warning-severity and never flips `ok` by default.
 
 Known limits (R4): glob patterns (`scripts/*.py`) and directory-level mentions (`see references/`) are not expanded — files referenced only that way will appear as orphans. If your skills use these patterns, consider `rules: { 'orphan-file': 'off' }`.
 
-`declared = resolved ∪ broken`; all four arrays are sorted ascending. `declared`/`resolved`/`broken` describe **direct** links from the SKILL.md body only — transitive reachability widens the orphan check, not these arrays, and a dead link inside a referenced doc does not emit `broken-ref`.
+`declared = resolved ∪ broken ∪ external`; all five arrays are sorted ascending. `declared`/`resolved`/`broken`/`external` describe **direct** links from the SKILL.md body only — transitive reachability widens the orphan check, not these arrays, and a dead link inside a referenced doc does not emit `broken-ref`.
 
 ## Diagnostics
 
@@ -178,7 +178,7 @@ Every code ships with a library-default severity; override any of them via `opti
 | `description-missing`        | error   | required `description` is absent                                                         |
 | `description-too-long`       | error   | `description` exceeds 1024 characters                                                    |
 | `compatibility-too-long`     | warning | `compatibility` exceeds 500 characters                                                   |
-| `metadata-non-string`        | error   | a `metadata` value isn't a string (it is stringified best-effort)                        |
+| `metadata-non-string`        | warning | a `metadata` value isn't a string (it is stringified best-effort)                        |
 | `version-missing`            | warning | `metadata.version` is not set                                                            |
 | `allowed-tools-experimental` | warning | `allowed-tools` is present (support varies across agents)                                |
 | `body-too-long`              | warning | body exceeds `BODY_TOKEN_LIMIT` (4,000) tokens                                           |
@@ -187,6 +187,7 @@ Every code ships with a library-default severity; override any of them via `opti
 | `license-missing`            | warning | neither `frontmatter.license` nor a LICENSE/COPYING file exists                          |
 | `license-file-missing`       | warning | `frontmatter.license` is declared but no license file exists                             |
 | `broken-ref`                 | warning | a referenced path doesn't exist in the tree (see false-positive note above)              |
+| `external-ref`               | warning | a reference escapes the skill folder (`../sibling/...`) — out of scope, not broken       |
 | `orphan-file`                | warning | a file is not reachable from SKILL.md through any chain of references (see limits above) |
 | `file-too-large`             | warning | a file exceeded `maxFileBytes` and was excluded from the manifest                        |
 

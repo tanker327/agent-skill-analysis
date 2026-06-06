@@ -150,6 +150,7 @@ Note the three planted findings: a link to `references/gone.md` (which doesn't e
     "declared": ["references/formats.md", "references/gone.md"],
     "resolved": ["references/formats.md"],
     "broken": ["references/gone.md"],
+    "external": [],
     "orphans": ["scripts/legacy.py"]
   },
   "size": {
@@ -257,7 +258,7 @@ The skill's prompt-budget cost: `metadata: 32` (name + description — paid for 
 
 Two deliberately different techniques:
 
-- `declared: [formats.md, gone.md]` — paths from **explicit markdown links** in the SKILL.md body only. Split against the real tree: `resolved` (exists) ∪ `broken` (doesn't — each gets a `broken-ref` warning). Direct-from-SKILL.md by contract.
+- `declared: [formats.md, gone.md]` — paths from **explicit markdown links** in the SKILL.md body only. Split against the real tree: `resolved` (exists) ∪ `broken` (doesn't — each gets a `broken-ref` warning) ∪ `external` (escapes the skill folder via `../sibling/...` — each gets an `external-ref` warning; empty here). Direct-from-SKILL.md by contract.
 - `orphans: [scripts/legacy.py]` — files **not reachable from SKILL.md through any chain of references**. The walk is transitive across markdown _and_ source files: here `SKILL.md` → backtick mention of `scripts/extract.py`, and `SKILL.md` → `references/formats.md` → `` `../assets/table.css` `` — so both are reachable and only `legacy.py` is flagged. Mentions count as paths (root- or file-relative, `./`-anchored), unique basenames, JS/TS import specifiers, Python `-m`/relative imports (with `__init__.py` package plumbing), and shell `$VAR`-anchored paths. See the README's "References" section for the complete matching rules and known limits.
 
 ### `size`
