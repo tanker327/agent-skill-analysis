@@ -43,6 +43,11 @@
  *       form seen from the scanning file ('.utils', '..lib.x').
  *   Plus python package plumbing: a reachable module marks its ancestor
  *   packages' __init__.py reachable (imports execute them).
+ *   Plus directory-as-resource-pool (F21): a reachable doc that names a
+ *   DIRECTORY via an anchored/slashed spelling ('`./canvas-fonts`', 'assets/',
+ *   '../shared/') marks every file under that directory reachable — the agent
+ *   is told to draw from the whole directory, so its contents are not orphans.
+ *   A bare single-segment word ('scripts') never counts: it collides with prose.
  *   Files that are not themselves reachable from SKILL.md are never scanned:
  *   an agent can only find files by following references from SKILL.md, so a
  *   mention inside an unreachable file must not silence a legitimate orphan
@@ -603,6 +608,40 @@ export function analyzeReferences(
       referenced.add(p);
       markPythonPackageInits(p);
       enqueue(p);
+    }
+  }
+
+  // ── Directory-as-resource-pool reachability (F21) ──────────────────────────
+  // A doc that points at a DIRECTORY ('Search the `./canvas-fonts` directory')
+  // makes every file under it reachable — the directory is a resource pool the
+  // agent is told to draw from, so its contents are not orphans. Without this,
+  // a single backtick directory mention leaves every contained file flagged as
+  // an orphan with a "not reachable from SKILL.md" message that is plainly
+  // false. Only anchored/slashed directory spellings count (`./fonts`, `fonts/`,
+  // `../assets/`); a bare single-segment word like 'scripts' is deliberately NOT
+  // matched, since it would collide with ordinary prose. Runs over the docs the
+  // BFS above already proved reachable from SKILL.md.
+  for (const doc of scannedDocs) {
+    for (const d of dirSet) {
+      const rel = relativeFromDir(doc.dir, d);
+      // rel === '' means the directory IS the scanning doc's own folder — a doc
+      // sitting in a directory is not a reference TO that directory.
+      if (rel === '') continue;
+      const forms = new Set<string>([`${d}/`, `${rel}/`]);
+      // The './'-anchored spelling only makes sense for an in/below-tree target;
+      // a '../'-climbing reference is already slash-anchored via `${rel}/`.
+      if (!rel.startsWith('../')) forms.add(`./${rel}`);
+      let hit = false;
+      for (const form of forms) {
+        if (isReferenced(form, doc.scan.linkTargets, doc.scan.inlineCode, doc.text)) {
+          hit = true;
+          break;
+        }
+      }
+      if (!hit) continue;
+      for (const p of allPaths) {
+        if (p.startsWith(`${d}/`)) referenced.add(p);
+      }
     }
   }
 

@@ -409,6 +409,67 @@ describe('analyzeReferences — orphans', () => {
   });
 });
 
+describe('analyzeReferences — directory-as-resource-pool reachability (F21)', () => {
+  const docs = (entries: Record<string, string>) => new Map(Object.entries(entries));
+
+  it('backtick `./dir` reference makes every file under the directory reachable', () => {
+    // canvas-design repro: SKILL.md names a directory as a font resource pool;
+    // the contained files must NOT be flagged as orphans.
+    const body = 'Use different fonts if writing text. Search the `./fonts` directory.';
+    const { result, codes } = runReferences(body, [
+      'SKILL.md',
+      'fonts/Arsenal-Regular.ttf',
+      'fonts/Arsenal-OFL.txt',
+      'fonts/BigShoulders-Bold.ttf',
+    ]);
+    expect(result.orphans).toEqual([]);
+    expect(codes.filter((c) => c === 'orphan-file')).toHaveLength(0);
+  });
+
+  it('markdown link to a trailing-slash directory pools its files (tier-1 dir form)', () => {
+    const body = 'See the [templates]( templates/ ) for examples.';
+    const { result } = runReferences(body, [
+      'SKILL.md',
+      'templates/post.md',
+      'templates/email.md',
+    ]);
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('a bare prose word matching a directory name does NOT pool its files (prose-collision guard)', () => {
+    // 'scripts' appears only as an ordinary English word, never anchored or
+    // slashed — the contained file must stay an orphan.
+    const body = 'Run the build scripts to compile the project before shipping.';
+    const { result } = runReferences(body, ['SKILL.md', 'scripts/unused.py']);
+    expect(result.orphans).toEqual(['scripts/unused.py']);
+  });
+
+  it('a directory referenced from a reachable SUB-doc via `../dir/` pools its files', () => {
+    // SKILL.md → docs/guide.md (scanned); guide.md points back up at ../assets/.
+    // Exercises the doc.dir !== '' path: rel='../assets' (the '../'-climb branch)
+    // and rel==='' skip when guide.md's own 'docs' directory is examined.
+    const body = 'Start with [the guide](docs/guide.md).';
+    const { result } = runReferences(
+      body,
+      ['SKILL.md', 'docs/guide.md', 'assets/logo.png', 'assets/hero.png'],
+      null,
+      null,
+      docs({ 'docs/guide.md': 'Images live in `../assets/` next to the skill.' }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('only files UNDER the named directory are pooled — a sibling stays an orphan', () => {
+    const body = 'Search the `./fonts` directory for typefaces.';
+    const { result } = runReferences(body, [
+      'SKILL.md',
+      'fonts/Regular.ttf',
+      'other/leftover.bin',
+    ]);
+    expect(result.orphans).toEqual(['other/leftover.bin']);
+  });
+});
+
 describe('analyzeReferences — transitive reachability (orphan check only)', () => {
   const docs = (entries: Record<string, string>) => new Map(Object.entries(entries));
 
