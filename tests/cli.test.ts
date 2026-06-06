@@ -8,7 +8,7 @@
  *
  * cli-entry.ts (process wiring) is coverage-excluded and not tested here.
  */
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -159,12 +159,30 @@ describe('runCli', () => {
     }
   });
 
-  it('a folder without SKILL.md analyzes (never throws) and exits 1', async () => {
-    const tmp = await mkdtemp(path.join(os.tmpdir(), 'asa-empty-'));
+  it('a skill folder with error-severity diagnostics analyzes and exits 1', async () => {
+    // SKILL.md present (passes the up-front check) but has no frontmatter →
+    // name-missing / description-missing are error severity → ok: false.
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'asa-bad-'));
     try {
+      await writeFile(path.join(tmp, 'SKILL.md'), '# No frontmatter here\n');
       const { io, out } = makeIO();
       expect(await runCli([tmp], io)).toBe(1);
-      expect(out.join('\n')).toContain('SKILL.md missing');
+      expect(out.join('\n')).toContain('name-missing');
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('a folder without SKILL.md → not-a-skill-folder error, exit 2, nothing scanned', async () => {
+    // CLI front-end policy only — analyze() itself still treats a missing
+    // SKILL.md as analyzable content (the renderAnalysis empty-tree test
+    // below covers that library branch via a memory source).
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'asa-empty-'));
+    try {
+      const { io, out, err } = makeIO();
+      expect(await runCli([tmp], io)).toBe(2);
+      expect(out).toEqual([]);
+      expect(err).toEqual([`asa: no SKILL.md in '${tmp}' — not a skill folder`]);
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }

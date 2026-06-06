@@ -93,7 +93,7 @@ asa                     # no argument: prints usage and exits 2
                         # (use `asa .` to analyze the current directory)
 ```
 
-Exit codes: `0` analyzed and `ok`, `1` analyzed but not `ok` (error-severity diagnostics remain), `2` usage or IO error. ANSI colors appear only on a TTY and respect [`NO_COLOR`](https://no-color.org); the `--json` output is the untouched contract — the pretty view is presentation only.
+Exit codes: `0` analyzed and `ok`, `1` analyzed but not `ok` (error-severity diagnostics remain), `2` usage or IO error. A folder with no `SKILL.md` is rejected up front as "not a skill folder" (exit `2`, nothing scanned) — that's CLI policy; `analyze()` itself still accepts such a tree and reports it through diagnostics. ANSI colors appear only on a TTY and respect [`NO_COLOR`](https://no-color.org); the `--json` output is the untouched contract — the pretty view is presentation only.
 
 ## Tokens
 

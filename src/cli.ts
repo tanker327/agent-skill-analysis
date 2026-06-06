@@ -16,6 +16,9 @@
  * Exit codes: 0 = analyzed and ok, 1 = analyzed but not ok (error-severity
  * diagnostics remain), 2 = usage or IO error (nothing analyzed).
  */
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { analyze } from './analyze.js';
 import { fromDir } from './node.js';
 import type { Diagnostic, SkillAnalysis } from './schema.js';
@@ -245,6 +248,17 @@ export async function runCli(argv: string[], io: CliIO): Promise<number> {
   if (folder === undefined) {
     io.stderr('asa: missing folder path');
     io.stderr(USAGE);
+    return 2;
+  }
+
+  // A skill folder is defined by its SKILL.md — check for it up front so a
+  // non-skill folder fails fast instead of having its whole tree scanned and
+  // hashed. CLI-front-end policy only: the analyze() contract still treats a
+  // missing SKILL.md as analyzable content (nullable body + diagnostics).
+  // When the folder itself is absent, fall through to fromDir for the real
+  // IO error rather than a misleading "not a skill folder".
+  if (existsSync(folder) && !existsSync(join(folder, 'SKILL.md'))) {
+    io.stderr(`asa: no SKILL.md in '${folder}' — not a skill folder`);
     return 2;
   }
 
