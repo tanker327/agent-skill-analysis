@@ -383,6 +383,7 @@ export function analyzeReferences(
   licensePath: string | null,
   collector: DiagnosticCollector,
   fileTexts: ReadonlyMap<string, string> = new Map(),
+  skillDir: string | null = null,
 ): ReferencesResult {
   // Build the exclusion set for orphan candidates.
   const excluded = new Set(STATIC_ORPHAN_EXCLUSIONS);
@@ -589,6 +590,14 @@ export function analyzeReferences(
           hit = true;
           break;
         }
+      }
+      // Absolute deploy-mount path (F19): skills are run from a mount like
+      // `/mnt/skills/public/<skill>/scripts/x.py`, so a doc may reference its own
+      // file only by that absolute path. Credit it via a plain-substring match on
+      // `/<skillDir>/<path>` — anchored on the exact skill folder name + exact
+      // in-folder path, so it cannot collide with R4's short-path guard.
+      if (!hit && skillDir !== null && skillDir !== '' && doc.text.includes(`/${skillDir}/${p}`)) {
+        hit = true;
       }
       if (!hit) continue;
       referenced.add(p);

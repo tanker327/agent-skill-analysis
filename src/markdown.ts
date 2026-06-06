@@ -50,14 +50,6 @@ const HEADING_RE = /^(#{1,6}) (.+)/;
  */
 const LINK_RE = /\[(?:[^\]]*)\]\(([^)]+)\)/g;
 
-/**
- * Inline code: double-backtick span `` `...` `` or single-backtick ` `...` `.
- * Double-backtick wins over single-backtick (longer match first) so that
- * `` `foo` `` doesn't split into two empty single-tick spans.
- * Group 1: content of a ``...`` span; group 2: content of a `...` span.
- */
-const INLINE_CODE_RE = /``([^`]+)``|`([^`]+)`/g;
-
 // ── Types ───────────────────────────────────────────────────────────────────
 
 /** Result of a full `scanMarkdown` pass. */
@@ -137,17 +129,49 @@ function extractLinkTargets(line: string): string[] {
 function maskInlineCode(line: string): { masked: string; codes: string[] } {
   const codes: string[] = [];
   const chars = line.split('');
-  INLINE_CODE_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = INLINE_CODE_RE.exec(line)) !== null) {
-    // Group 1 = double-backtick content; group 2 = single-backtick content.
-    // Both groups use [^`]+ so the '' fallback from group() signals "didn't match" —
-    // whichever alternative matched is non-empty, so the || result always is too.
-    codes.push(group(m, 1) || group(m, 2));
-    // Blank the whole span (backticks included) so link extraction skips it.
-    for (let i = m.index; i < m.index + group(m, 0).length; i++) chars[i] = ' ';
+  const len = line.length;
+  let didMask = false;
+  let i = 0;
+  while (i < len) {
+    if (line.charAt(i) !== '`') {
+      i++;
+      continue;
+    }
+    // Measure the opening backtick run (CommonMark §6.1: a code span is opened by
+    // a run of N backticks and closed by a run of EXACTLY N backticks). This handles
+    // multi-backtick fences whose content itself contains shorter backtick runs —
+    // e.g. `` `x` `` — which the old single/double regex could not (F18).
+    let j = i;
+    while (j < len && line.charAt(j) === '`') j++;
+    const runLen = j - i;
+    // Scan for a closing run of exactly runLen backticks.
+    let k = j;
+    let closeEnd = -1;
+    while (k < len) {
+      if (line.charAt(k) !== '`') {
+        k++;
+        continue;
+      }
+      let r = k;
+      while (r < len && line.charAt(r) === '`') r++;
+      if (r - k === runLen) {
+        closeEnd = r;
+        break;
+      }
+      k = r; // a different-length run is not a valid closer — skip and keep scanning
+    }
+    if (closeEnd === -1) {
+      // No matching closer: the run is literal backticks, not a code span. Advance
+      // past the opening run so a later valid span on the line is still found.
+      i = j;
+      continue;
+    }
+    codes.push(line.slice(j, closeEnd - runLen)); // content between the two fences
+    for (let p = i; p < closeEnd; p++) chars[p] = ' '; // blank the whole span
+    didMask = true;
+    i = closeEnd;
   }
-  return { masked: codes.length === 0 ? line : chars.join(''), codes };
+  return { masked: didMask ? chars.join('') : line, codes };
 }
 
 /**

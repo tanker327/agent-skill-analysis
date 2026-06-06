@@ -51,6 +51,7 @@ function runReferences(
   readmePath: string | null = null,
   licensePath: string | null = null,
   docTexts: ReadonlyMap<string, string> = new Map(),
+  skillDir: string | null = null,
 ) {
   const collector = new DiagnosticCollector();
   const result = analyzeReferences(
@@ -60,6 +61,7 @@ function runReferences(
     licensePath,
     collector,
     docTexts,
+    skillDir,
   );
   return { result, codes: collector.all().map((d) => d.code) };
 }
@@ -763,6 +765,32 @@ describe('analyzeReferences — code-file chains (the reference graph crosses so
       }),
     );
     expect(result.orphans).toEqual([]);
+  });
+
+  it('absolute deploy-mount path /mnt/skills/<skill>/scripts/x.py rescues the script (F19)', () => {
+    // A skill referencing its own script only by the absolute mount path must not
+    // orphan that script. Matched via the skillDir-anchored `/<dir>/<path>` form.
+    const { result } = runReferences(
+      'Run `python /mnt/skills/public/data-analysis/scripts/analyze.py --input f.csv`.',
+      ['SKILL.md', 'scripts/analyze.py'],
+      null,
+      null,
+      new Map(),
+      'data-analysis',
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('absolute-mount matching needs the exact skill dir; a different dir stays orphan (F19 guard)', () => {
+    const { result } = runReferences(
+      'Run `python /mnt/skills/public/OTHER-skill/scripts/analyze.py`.',
+      ['SKILL.md', 'scripts/analyze.py'],
+      null,
+      null,
+      new Map(),
+      'data-analysis',
+    );
+    expect(result.orphans).toEqual(['scripts/analyze.py']);
   });
 
   it('brace-template prefix `{baseDir}/scripts/x.sh args` rescues the script (F16)', () => {

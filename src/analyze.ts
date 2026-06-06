@@ -175,6 +175,7 @@ export async function analyze(
     licensePath,
     collector,
     fileTexts,
+    dir,
   );
 
   // Stage: digest (P5). computeDigest re-parses the SKILL.md YAML block fresh

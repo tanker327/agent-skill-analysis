@@ -319,6 +319,32 @@ describe('scanMarkdown — full scan result', () => {
     expect(scan.inlineCode).toContain('[text](path.md)');
   });
 
+  it('multi-backtick span containing backticks does not leak a later backticked link (F18)', () => {
+    // CommonMark: `` `x` `` is a 2-backtick span whose content holds single
+    // backticks. The following `[t](url)` is itself a 1-backtick span and must be
+    // masked too — its target must NOT leak as a link.
+    const text = 'syntax: inline `` `x` ``, links `[t](url)`, done\n';
+    const scan = scanMarkdown(text);
+    expect(scan.linkTargets).toEqual([]);
+  });
+
+  it('an unclosed backtick run is literal and does not swallow the rest of the line (F18)', () => {
+    // No closing fence for the lone backtick → it is literal; a real link after it
+    // is still extracted.
+    const text = 'price is 5 ` dollars, see [guide](docs/g.md)\n';
+    const scan = scanMarkdown(text);
+    expect(scan.linkTargets).toEqual(['docs/g.md']);
+  });
+
+  it('a different-length backtick run is skipped when seeking the closer (F18)', () => {
+    // Opening `` (len 2); a single ` mid-content is not a valid closer; the trailing
+    // `` closes. The contained [a](b) is masked, the later real link is kept.
+    const text = '``code ` tick``  and  [real](r.md)\n';
+    const scan = scanMarkdown(text);
+    expect(scan.linkTargets).toEqual(['r.md']);
+    expect(scan.inlineCode).toContain('code ` tick');
+  });
+
   it('inline code on a heading line is captured in inlineCode array', () => {
     // The heading is still a heading (F2 corollary); inline code is also captured.
     const text = '## Use `#` for comments\n';
