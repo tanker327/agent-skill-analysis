@@ -249,11 +249,38 @@ Ignored files never enter the manifest, so **the same tree analyzed with a diffe
 
 ## Output contract
 
-The whole shape is defined by a single zod schema, `SkillAnalysisSchema` — exported, with every TypeScript type inferred from it (`SkillAnalysis`, `Diagnostic`, `FileEntry`, …). A JSON Schema artifact is generated at build time for non-TypeScript consumers. The schema is the source of truth: output-shape changes always land together with a schema change. A complete real output with every field explained: [docs/output-example.md](docs/output-example.md).
+The whole shape is defined by a single zod schema, `SkillAnalysisSchema` — exported, with every TypeScript type inferred from it (`SkillAnalysis`, `Diagnostic`, `FileEntry`, …). The schema is the source of truth: output-shape changes always land together with a schema change. A complete real output with every field explained: [docs/output-example.md](docs/output-example.md).
 
 - `schemaVersion` (`"1.0.0"`) — semver of the JSON shape; bumped on breaking shape **or digest-semantics** changes once published.
 - `analyzerVersion` — this library's own version.
 - `specVersion` (`"agentskills-2025-12"`) — the spec snapshot validation targets; bumped manually when the spec changes, recorded in the changelog.
+
+### JSON Schema artifact (for non-TypeScript consumers)
+
+The contract is also published as a standard JSON Schema, generated from the zod source at build time and available in three places:
+
+| Where                                                                                              | Use it for                                                              |
+| -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| [`skill-analysis.schema.json`](skill-analysis.schema.json) (repo root, committed)                  | browsing the contract on GitHub; reviewing contract changes in PR diffs |
+| `https://raw.githubusercontent.com/tanker327/agent-skill-analysis/main/skill-analysis.schema.json` | fetching from any language/toolchain without npm or a build             |
+| `dist/skill-analysis.schema.json` (in the npm package)                                             | resolving locally from `node_modules`                                   |
+
+Validate `asa --json` output anywhere a JSON Schema validator exists:
+
+```bash
+# JavaScript (ajv-cli)
+asa ./my-skill --json > analysis.json
+npx ajv-cli validate -s skill-analysis.schema.json -d analysis.json
+
+# Python
+python -c "
+import json, jsonschema, urllib.request
+schema = json.load(urllib.request.urlopen('https://raw.githubusercontent.com/tanker327/agent-skill-analysis/main/skill-analysis.schema.json'))
+jsonschema.validate(json.load(open('analysis.json')), schema)
+"
+```
+
+The committed copy cannot drift: an **unconditional byte-match test** compares it against `z.toJSONSchema(SkillAnalysisSchema)` on every test run, so a `schema.ts` change that isn't accompanied by a regenerated artifact (`npm run build`) fails CI.
 
 ## Development
 
@@ -262,7 +289,9 @@ npm install
 npm run lint           # eslint
 npm run typecheck      # tsc --noEmit
 npm test               # vitest (npm run test:coverage for the per-file 100% gate)
-npm run build          # ESM + CJS + types + JSON Schema artifact to dist/
+npm run build          # ESM + CJS + types to dist/, plus the JSON Schema artifact
+                       # (written to BOTH dist/ and the committed repo-root copy —
+                       # commit the regenerated root file with any schema change)
 ```
 
 The CI gate is all four in that order — a green `npm test` alone is not a green gate (vitest does not typecheck). Coverage thresholds are a per-file 100% ratchet; CI runs the chain on Node 20 and 22.

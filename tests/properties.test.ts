@@ -172,4 +172,18 @@ describe('JSON Schema artifact — z.toJSONSchema(SkillAnalysisSchema)', () => {
       });
     },
   );
+
+  // The COMMITTED copy at the repo root is asserted unconditionally (no skipIf
+  // — it is checked into git, so it always exists). This is the drift guard:
+  // changing schema.ts without running `npm run build` to regenerate the
+  // committed artifact fails CI here.
+  describe('skill-analysis.schema.json (committed at repo root)', () => {
+    const COMMITTED_PATH = resolve('skill-analysis.schema.json');
+
+    it('exists, is valid JSON, and matches z.toJSONSchema(SkillAnalysisSchema) byte-for-byte', () => {
+      const fileContent = readFileSync(COMMITTED_PATH, 'utf-8');
+      const inline = JSON.stringify(z.toJSONSchema(SkillAnalysisSchema), null, 2) + '\n';
+      expect(fileContent).toBe(inline);
+    });
+  });
 });

@@ -2,7 +2,7 @@
 
 This walks through a complete, real `analyze()` / `asa --json` output, field by field. The JSON below was produced by the library from the example skill shown first — every byte is genuine output, not hand-written.
 
-The authoritative contract is `SkillAnalysisSchema` (zod, strict objects) exported from the package; a generated JSON Schema ships as `dist/skill-analysis.schema.json`. Strict means **no extra keys, ever** — what you see here is the entire shape.
+The authoritative contract is `SkillAnalysisSchema` (zod, strict objects) exported from the package; a generated JSON Schema is committed at the repo root as [`skill-analysis.schema.json`](../skill-analysis.schema.json) and ships in the package as `dist/skill-analysis.schema.json`. Strict means **no extra keys, ever** — what you see here is the entire shape.
 
 ## The example skill
 

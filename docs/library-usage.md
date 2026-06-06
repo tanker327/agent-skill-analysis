@@ -151,7 +151,7 @@ a.diagnostics; // [{ code, severity, message, field?, hint? }], sorted
 
 ### Validating with the schema
 
-The zod schema is the output contract and is exported (a generated JSON Schema also ships as `dist/skill-analysis.schema.json`):
+The zod schema is the output contract and is exported (a generated JSON Schema is committed at the repo root as [`skill-analysis.schema.json`](../skill-analysis.schema.json) and ships in the package as `dist/skill-analysis.schema.json`):
 
 ```ts
 import { SkillAnalysisSchema } from 'agent-skill-analysis';
