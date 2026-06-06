@@ -57,6 +57,8 @@ export const DEFAULT_IGNORE: readonly string[] = [
   'package-lock.json',
   'yarn.lock',
   'pnpm-lock.yaml',
+  'bun.lock',
+  'bun.lockb',
 ];
 
 function isIgnored(path: string, ignore: readonly string[]): boolean {

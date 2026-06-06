@@ -21,8 +21,16 @@ describe('DEFAULT_IGNORE', () => {
     expect(DEFAULT_IGNORE).toContain('.DS_Store');
   });
 
-  it('includes repo-root scaffolding artifacts (F3): .github, lockfiles, tool caches', () => {
-    for (const e of ['.github', '.gitignore', 'package-lock.json', '.vscode', '.pytest_cache']) {
+  it('includes repo-root scaffolding artifacts (F3/F20): .github, lockfiles, tool caches', () => {
+    for (const e of [
+      '.github',
+      '.gitignore',
+      'package-lock.json',
+      'bun.lock',
+      'bun.lockb',
+      '.vscode',
+      '.pytest_cache',
+    ]) {
       expect(DEFAULT_IGNORE).toContain(e);
     }
   });
@@ -37,12 +45,14 @@ describe('repo-root scaffolding handling (F3)', () => {
       '.github/workflows/ci.yml': 'on: push',
       '.gitignore': 'node_modules\n',
       'package-lock.json': '{}',
+      'scripts/bun.lock': '{ "lockfileVersion": 1 }',
     };
     const result = await analyze(mem(files));
     const paths = result.files.map((f) => f.path);
     expect(paths).not.toContain('.github/workflows/ci.yml');
     expect(paths).not.toContain('.gitignore');
     expect(paths).not.toContain('package-lock.json');
+    expect(paths).not.toContain('scripts/bun.lock'); // F20
     expect(result.references.orphans).toEqual([]);
     expect(result.diagnostics.some((d) => d.code === 'orphan-file')).toBe(false);
   });
