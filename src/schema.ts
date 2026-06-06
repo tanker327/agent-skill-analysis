@@ -119,10 +119,14 @@ export const SkillAnalysisSchema = z.strictObject({
     declared: z.string().nullable(),
     /** Recognized SPDX id (allowlist / header signature). */
     spdx: z.string().nullable(),
-    /** Detected LICENSE file path, relative to the skill root. */
+    /**
+     * Detected LICENSE file path, relative to the skill root. The license
+     * TEXT is deliberately not copied into the output — read this file for
+     * the bytes (its sha256 is in files[]). License texts are not canonical
+     * per SPDX id (copyright lines, appendices, wrapping vary), so the text
+     * is the file's business; `spdx` is the classification.
+     */
     file: z.string().nullable(),
-    /** LICENSE file full text (uncapped). */
-    text: z.string().nullable(),
     /** Where `spdx` came from. */
     source: z.enum(['frontmatter', 'file']).nullable(),
   }),

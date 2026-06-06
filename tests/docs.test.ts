@@ -323,7 +323,7 @@ describe('README detection via analyze()', () => {
 describe('LICENSE detection and SPDX recognition via analyze()', () => {
   // ── License file detection ──
 
-  it('LICENSE file present → license.file="LICENSE", license.text non-null', async () => {
+  it('LICENSE file present → license.file="LICENSE" (text is never copied to output)', async () => {
     const result = await analyze(
       mem({
         'SKILL.md': VALID_SKILL,
@@ -332,8 +332,9 @@ describe('LICENSE detection and SPDX recognition via analyze()', () => {
       }),
     );
     expect(result.license.file).toBe('LICENSE');
-    expect(result.license.text).not.toBeNull();
-    expect(result.license.text).toContain('MIT License');
+    // The license text is deliberately NOT in the output — consumers read
+    // license.file from the tree; files[].sha256 is the byte authority.
+    expect(result.license).not.toHaveProperty('text');
   });
 
   it('LICENSE.txt is also detected', async () => {
@@ -407,14 +408,13 @@ describe('LICENSE detection and SPDX recognition via analyze()', () => {
     );
     expect(result.license.spdx).toBe('MIT');
     expect(result.license.source).toBe('frontmatter');
-    // File is still stored even when frontmatter wins.
+    // File path is still stored even when frontmatter wins.
     expect(result.license.file).toBe('LICENSE');
-    expect(result.license.text).not.toBeNull();
   });
 
   // ── Custom / proprietary license ──
 
-  it('custom license (not in allowlist) → spdx=null, source=null, text preserved', async () => {
+  it('custom license (not in allowlist) → spdx=null, source=null, file path kept', async () => {
     const proprietaryText = 'All Rights Reserved. No use without written permission.';
     const result = await analyze(
       mem({
@@ -427,10 +427,9 @@ describe('LICENSE detection and SPDX recognition via analyze()', () => {
     expect(result.license.source).toBeNull();
     expect(result.license.declared).toBe('Proprietary-Internal');
     expect(result.license.file).toBe('LICENSE');
-    expect(result.license.text).toContain('All Rights Reserved');
   });
 
-  it('LICENSE file with unrecognized header → spdx=null, text still stored', async () => {
+  it('LICENSE file with unrecognized header → spdx=null, file path still stored', async () => {
     const result = await analyze(
       mem({
         'SKILL.md': VALID_SKILL,
@@ -439,7 +438,7 @@ describe('LICENSE detection and SPDX recognition via analyze()', () => {
       }),
     );
     expect(result.license.spdx).toBeNull();
-    expect(result.license.text).not.toBeNull();
+    expect(result.license.file).toBe('LICENSE');
   });
 
   // ── Diagnostic: license-missing ──
@@ -477,7 +476,6 @@ describe('LICENSE detection and SPDX recognition via analyze()', () => {
     expect(result.license.spdx).toBe('MIT');
     expect(result.license.source).toBe('frontmatter');
     expect(result.license.file).toBeNull();
-    expect(result.license.text).toBeNull();
   });
 
   it('license-file-missing: ok stays true (warning, not error)', async () => {

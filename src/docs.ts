@@ -16,7 +16,13 @@
  *      → spdx = matched id, source = "frontmatter"
  *   2. LICENSE file head scanned against FILE_SIGNATURES
  *      → spdx = matched id, source = "file"
- *   3. Neither → spdx = null, source = null  (file / text still stored if present)
+ *   3. Neither → spdx = null, source = null  (file path still stored if present)
+ *
+ * The license TEXT is never copied into the output: texts are not canonical
+ * per SPDX id (copyright lines, appendices, wrapping vary), so consumers read
+ * `license.file` from the tree when they need the bytes — files[].sha256 is
+ * the byte authority. Only the head (LICENSE_HEAD_LINES) is read here, for
+ * signature classification.
  *
  * Note: a frontmatter.license value that fails the allowlist is NOT a diagnostic
  * — unrecognized declared licenses are valid (e.g. proprietary / custom SPDX
@@ -92,7 +98,6 @@ export interface LicenseResult {
   declared: string | null;
   spdx: string | null;
   file: string | null;
-  text: string | null;
   source: 'frontmatter' | 'file' | null;
 }
 
@@ -215,13 +220,13 @@ export async function detectLicense(
     collector.emit('license-file-missing', { field: 'license' });
   }
 
-  // Read license file content (if present).
-  let licenseText: string | null = null;
+  // Read the license file head (if present) — classification only; the full
+  // text is never kept (see module header).
   let fileHead: string | null = null;
   if (licensePath !== null) {
     const bytes = await skillSource.read(licensePath);
-    licenseText = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-    fileHead = licenseText.split('\n').slice(0, LICENSE_HEAD_LINES).join('\n');
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    fileHead = text.split('\n').slice(0, LICENSE_HEAD_LINES).join('\n');
   }
 
   const { spdx, source } = classifySpdx(declared, fileHead);
@@ -230,7 +235,6 @@ export async function detectLicense(
     declared,
     spdx,
     file: licensePath,
-    text: licenseText,
     source,
   };
 }

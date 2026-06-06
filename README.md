@@ -169,7 +169,7 @@ Every code ships with a library-default severity; override any of them via `opti
 | `orphan-file`                | warning | a file is not reachable from SKILL.md through any chain of references (see limits above) |
 | `file-too-large`             | warning | a file exceeded `maxFileBytes` and was excluded from the manifest                        |
 
-The full registry — including default messages and hints — is exported as `DIAGNOSTIC_REGISTRY`. A custom or unrecognized license is **not** a diagnostic: `license.spdx` stays `null` while `license.file`/`license.text` are still populated.
+The full registry — including default messages and hints — is exported as `DIAGNOSTIC_REGISTRY`. A custom or unrecognized license is **not** a diagnostic: `license.spdx` stays `null` while `license.file` still points at the file. The license text itself is never copied into the output — texts are not canonical per SPDX id (copyright lines, appendices, wrapping vary), so read `license.file` from the tree when you need the bytes; `files[].sha256` is the byte authority.
 
 ## Digest — the content fingerprint (authoritative definition)
 

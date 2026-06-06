@@ -19,7 +19,7 @@
  *     files[] and emit file-too-large (warning); never silent.
  *
  * Binary files: in files[] with isText=false, sha256 present, but absent from every
- * text field in the output (body, readme, license.text). (flow §4, F5)
+ * text field in the output (body, readme). (flow §4, F5)
  *
  * NOTE: Pure unit tests for the kind-classification helper and per-file hashing
  * will be added in a follow-up once src/manifest.ts exports those pure helpers.
@@ -77,7 +77,7 @@ describe('manifest — binary file', () => {
     expect(entry?.sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('binary file does NOT appear in any text field (body, readme, license.text)', async () => {
+  it('binary file does NOT appear in any text field (body, readme)', async () => {
     const source = fromFiles({
       'SKILL.md': FM + 'Body text about the skill.',
       'README.md': '# Test Skill',
@@ -96,10 +96,7 @@ describe('manifest — binary file', () => {
     if (result.readme !== null) {
       expect(result.readme.text).not.toContain('\x89');
     }
-    // License text must not contain PNG bytes
-    if (result.license.text !== null) {
-      expect(result.license.text).not.toContain('\x89');
-    }
+    // (license carries no text field — the output never copies license bytes)
   });
 
   it('text files have isText=true', async () => {
