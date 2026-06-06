@@ -266,6 +266,60 @@ describe('scanMarkdown — full scan result', () => {
     expect(scan.linkTargets).toEqual(['real.md']);
   });
 
+  // ── Link titles and angle-bracketed destinations (CommonMark §6.3, F23) ──────
+  //
+  // [text](dest "title") is core CommonMark — the title must be stripped from
+  // the target or references.ts reports a false broken-ref for `dest "title"`.
+
+  it('strips a double-quoted link title from the target (F23)', () => {
+    const text = 'See [guide](references/guide.md "Guide title").\n';
+    expect(scanMarkdown(text).linkTargets).toEqual(['references/guide.md']);
+  });
+
+  it('strips a single-quoted link title from the target (F23)', () => {
+    const text = "See [guide](references/guide.md 'Guide title').\n";
+    expect(scanMarkdown(text).linkTargets).toEqual(['references/guide.md']);
+  });
+
+  it('unwraps an angle-bracketed destination, preserving its spaces (F23)', () => {
+    const text = 'See [guide](<references/my guide.md>).\n';
+    expect(scanMarkdown(text).linkTargets).toEqual(['references/my guide.md']);
+  });
+
+  it('unwraps an angle-bracketed destination followed by a quoted title (F23)', () => {
+    const text = 'See [guide](<references/guide.md> "Guide title").\n';
+    expect(scanMarkdown(text).linkTargets).toEqual(['references/guide.md']);
+  });
+
+  it('an empty angle-bracketed destination (<>) is not extracted (F23)', () => {
+    expect(scanMarkdown('See [empty](<>).\n').linkTargets).toEqual([]);
+  });
+
+  it('a "<" without a closing ">" is kept verbatim, not treated as a bracket (F23)', () => {
+    expect(scanMarkdown('See [odd](<broken.md).\n').linkTargets).toEqual(['<broken.md']);
+  });
+
+  it('surrounding whitespace inside the parentheses is trimmed (F23)', () => {
+    expect(scanMarkdown('See [guide]( references/guide.md ).\n').linkTargets).toEqual([
+      'references/guide.md',
+    ]);
+  });
+
+  it('a whitespace-only target is not extracted (F23)', () => {
+    expect(scanMarkdown('See [blank](  ).\n').linkTargets).toEqual([]);
+  });
+
+  it('a target with internal spaces but no quoted title is kept verbatim (F23 boundary)', () => {
+    // Not valid CommonMark (a plain destination cannot contain spaces) — the
+    // scanner stays permissive and leaves resolution failure to references.ts.
+    expect(scanMarkdown('See [odd](my file.md).\n').linkTargets).toEqual(['my file.md']);
+  });
+
+  it('text after a quoted title is NOT treated as a title (F23 boundary)', () => {
+    // The whole remainder must be a single quoted title for the strip to apply.
+    expect(scanMarkdown('See [odd](a.md "t" extra).\n').linkTargets).toEqual(['a.md "t" extra']);
+  });
+
   it('extracts single-backtick inline code spans', () => {
     const text = 'Run `npm test` to execute tests.\n';
     const scan = scanMarkdown(text);

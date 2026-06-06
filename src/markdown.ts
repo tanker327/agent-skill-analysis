@@ -44,11 +44,21 @@ const FENCE_OPEN_RE = /^( {0,3})(```+|~~~+)\s*\S*\s*$/;
 const HEADING_RE = /^(#{1,6}) (.+)/;
 
 /**
- * Markdown link: [text](target). Captures (1) target.
+ * Markdown link: [text](target). Captures (1) the raw parenthesized content —
+ * `cleanLinkTarget` then strips CommonMark titles / angle brackets (F23).
  * Intentionally simple — handles common `[..](path)` patterns.
  * Does not handle nested brackets, which are rare in skill files.
  */
 const LINK_RE = /\[(?:[^\]]*)\]\(([^)]+)\)/g;
+
+/**
+ * Plain destination followed by a quoted link title (CommonMark §6.3):
+ * `dest "title"` or `dest 'title'`. Captures (1) the destination.
+ * The whole remainder must be one quoted title for the strip to apply.
+ * The parenthesized `(title)` form cannot survive LINK_RE's `[^)]+` capture
+ * (its closing paren ends the match), so it is not handled here.
+ */
+const LINK_TITLE_RE = /^(\S+)\s+(?:"[^"]*"|'[^']*')$/;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -102,16 +112,38 @@ function stripHeadingTrail(raw: string): string {
 }
 
 /**
+ * Normalize a raw `(…)` link content to its destination (CommonMark §6.3, F23):
+ *   - surrounding whitespace is trimmed
+ *   - an `<angle-bracketed>` destination is unwrapped (it may contain spaces,
+ *     and may be followed by a quoted title)
+ *   - a trailing `"title"` / `'title'` after a plain destination is stripped —
+ *     `[guide](references/guide.md "Guide title")` targets `references/guide.md`
+ * Anything else (spaces but no title, unclosed `<`) is kept verbatim — the
+ * scanner stays permissive and leaves resolution failure to references.ts.
+ */
+function cleanLinkTarget(raw: string): string {
+  const t = raw.trim();
+  if (t.startsWith('<')) {
+    const close = t.indexOf('>');
+    if (close !== -1) return t.slice(1, close);
+  }
+  const m = LINK_TITLE_RE.exec(t);
+  if (m !== null) return group(m, 1);
+  return t;
+}
+
+/**
  * Extract link targets from a single line (outside code fences).
  * Returns an empty array when no `[..](target)` patterns are present.
+ * Targets that clean to the empty string (`<>`, whitespace-only) are dropped.
  */
 function extractLinkTargets(line: string): string[] {
   const targets: string[] = [];
   LINK_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = LINK_RE.exec(line)) !== null) {
-    // Group 1 is ([^)]+) — a successful match is never empty, so push directly.
-    targets.push(group(m, 1));
+    const target = cleanLinkTarget(group(m, 1));
+    if (target.length > 0) targets.push(target);
   }
   return targets;
 }

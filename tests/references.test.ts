@@ -1,16 +1,19 @@
 /**
  * Unit and integration tests for P4 reference graph pipeline (stage ⑩).
  *
- * Stage ⑩ (flow §4) derives four sets from the SKILL.md body and the manifest:
+ * Stage ⑩ (flow §4) derives five sets from the SKILL.md body and the manifest:
  *
  *   declared  — unique relative paths linked in the body (from scanMarkdown
  *               linkTargets, relative-path filter, deduplicated, sorted asc).
- *               declared = resolved ∪ broken.
+ *               declared = resolved ∪ broken ∪ external.
  *
  *   resolved  — declared paths that exist in files[], sorted asc.
  *
- *   broken    — declared paths NOT in files[], sorted asc.
+ *   broken    — declared in-folder paths NOT in files[], sorted asc.
  *               Emits 'broken-ref' (warning) per broken path.
+ *
+ *   external  — declared paths that escape the skill folder ('../sibling/...').
+ *               Emits 'external-ref' (warning) per path (F7).
  *
  *   orphans   — files present but not referenced anywhere in the body.
  *               SKILL.md, README, LICENSE excluded from orphan candidates.
@@ -132,6 +135,17 @@ describe('analyzeReferences — declared (markdown link targets)', () => {
 });
 
 describe('analyzeReferences — resolved and broken', () => {
+  it('a link with a quoted title resolves to its path — no false broken-ref (F23)', () => {
+    const { result, codes } = runReferences('[guide](references/guide.md "Guide title")', [
+      'SKILL.md',
+      'references/guide.md',
+    ]);
+    expect(result.declared).toEqual(['references/guide.md']);
+    expect(result.resolved).toEqual(['references/guide.md']);
+    expect(result.broken).toEqual([]);
+    expect(codes).not.toContain('broken-ref');
+  });
+
   it('declared path that exists in files → resolved, not broken', () => {
     const body = '[guide](references/guide.md)';
     const { result } = runReferences(body, ['SKILL.md', 'references/guide.md']);
@@ -179,11 +193,7 @@ describe('analyzeReferences — resolved and broken', () => {
   it('a ./-prefixed link to an existing file resolves, not broken (F12)', () => {
     // [x](./references/a.md) must resolve identically to references/a.md.
     const body = '[a](./references/a.md) and [b](./scripts/b.py)';
-    const { result, codes } = runReferences(body, [
-      'SKILL.md',
-      'references/a.md',
-      'scripts/b.py',
-    ]);
+    const { result, codes } = runReferences(body, ['SKILL.md', 'references/a.md', 'scripts/b.py']);
     expect(result.resolved).toEqual(['./references/a.md', './scripts/b.py']);
     expect(result.broken).toEqual([]);
     expect(codes).not.toContain('broken-ref');
@@ -264,8 +274,7 @@ describe('analyzeReferences — external references (F7)', () => {
   });
 
   it('declared = resolved ∪ broken ∪ external (complete, disjoint)', () => {
-    const body =
-      '[ok](references/guide.md) [gone](references/gone.md) [sib](../other/SKILL.md)';
+    const body = '[ok](references/guide.md) [gone](references/gone.md) [sib](../other/SKILL.md)';
     const { result } = runReferences(body, ['SKILL.md', 'references/guide.md']);
     expect([...result.declared].sort()).toEqual(
       [...result.resolved, ...result.broken, ...result.external].sort(),
@@ -430,11 +439,7 @@ describe('analyzeReferences — directory-as-resource-pool reachability (F21)', 
 
   it('markdown link to a trailing-slash directory pools its files (tier-1 dir form)', () => {
     const body = 'See the [templates]( templates/ ) for examples.';
-    const { result } = runReferences(body, [
-      'SKILL.md',
-      'templates/post.md',
-      'templates/email.md',
-    ]);
+    const { result } = runReferences(body, ['SKILL.md', 'templates/post.md', 'templates/email.md']);
     expect(result.orphans).toEqual([]);
   });
 
@@ -463,11 +468,7 @@ describe('analyzeReferences — directory-as-resource-pool reachability (F21)', 
 
   it('only files UNDER the named directory are pooled — a sibling stays an orphan', () => {
     const body = 'Search the `./fonts` directory for typefaces.';
-    const { result } = runReferences(body, [
-      'SKILL.md',
-      'fonts/Regular.ttf',
-      'other/leftover.bin',
-    ]);
+    const { result } = runReferences(body, ['SKILL.md', 'fonts/Regular.ttf', 'other/leftover.bin']);
     expect(result.orphans).toEqual(['other/leftover.bin']);
   });
 });
@@ -513,14 +514,30 @@ describe('analyzeReferences — frontmatter-mentioned paths are reachable (F22)'
     // A bracketed-looking description must NOT be parsed as a link target — the
     // frontmatter doc is scanned tier-3 (raw path-boundary) only.
     const fm = 'name: x\ndescription: "see [the guide](guide.md) elsewhere"\n';
-    const { result } = runReferences('Body.', ['SKILL.md', 'guide.md'], null, null, new Map(), null, fm);
+    const { result } = runReferences(
+      'Body.',
+      ['SKILL.md', 'guide.md'],
+      null,
+      null,
+      new Map(),
+      null,
+      fm,
+    );
     // guide.md is mentioned as a bare path token in the frontmatter, so tier-3
     // DOES credit it — but it must not appear in declared (declared = body links).
     expect(result.declared).toEqual([]);
   });
 
   it('empty-string frontmatter is not scanned (no crash, no effect)', () => {
-    const { result } = runReferences('Body.', ['SKILL.md', 'scripts/x.py'], null, null, new Map(), null, '');
+    const { result } = runReferences(
+      'Body.',
+      ['SKILL.md', 'scripts/x.py'],
+      null,
+      null,
+      new Map(),
+      null,
+      '',
+    );
     expect(result.orphans).toEqual(['scripts/x.py']);
   });
 });
