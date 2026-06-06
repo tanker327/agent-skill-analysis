@@ -14,8 +14,10 @@
  *               Emits 'broken-ref' (warning) for each broken path.
  *
  *   orphans   — files not reachable from SKILL.md through any chain of
- *               references (SKILL.md, README, LICENSE excluded from
- *               candidates). Emits 'orphan-file' (warning) per orphan path.
+ *               references (SKILL.md, README, LICENSE, and root-level
+ *               convention files like AGENTS.md excluded from candidates —
+ *               agents read those by name, not by reference).
+ *               Emits 'orphan-file' (warning) per orphan path.
  *
  * Transitive reachability (orphan check ONLY — declared/resolved/broken stay
  * direct-from-SKILL.md by design):
@@ -72,6 +74,20 @@ import { scanMarkdown } from './markdown.js';
  * README and LICENSE paths are added dynamically from the docs stage results.
  */
 const STATIC_ORPHAN_EXCLUSIONS = new Set(['SKILL.md']);
+
+/**
+ * Root-level convention files that agents read directly BY NAME (the
+ * agents.md convention) — discoverable without a link from SKILL.md, so
+ * never orphan candidates, same as README/LICENSE. Lowercased for
+ * case-insensitive matching (mirrors README/LICENSE detection in docs.ts).
+ * Root-level only: a nested docs/AGENTS.md is not the convention file.
+ */
+const CONVENTION_BASENAMES = new Set(['agents.md']);
+
+/** True for a root-level convention file (read by name, never an orphan). */
+function isConventionFile(p: string): boolean {
+  return !p.includes('/') && CONVENTION_BASENAMES.has(p.toLowerCase());
+}
 
 /**
  * Escape a string for use as a literal pattern in a RegExp.
@@ -278,7 +294,8 @@ export function analyzeReferences(
   const allPathsSet = new Set(allPaths);
 
   // Non-excluded paths are orphan candidates regardless of manifest filtering.
-  const orphanCandidates = allPaths.filter((p) => !excluded.has(p));
+  // Convention files (AGENTS.md) are read by name, not by reference — excluded.
+  const orphanCandidates = allPaths.filter((p) => !excluded.has(p) && !isConventionFile(p));
 
   // When SKILL.md is absent there is no body to scan.
   // All non-excluded paths are orphans; declared/resolved/broken stay empty.

@@ -223,6 +223,25 @@ describe('analyzeReferences — orphans', () => {
     expect(result.orphans).not.toContain('LICENSE');
   });
 
+  it('root-level AGENTS.md is never an orphan (convention file, read by name)', () => {
+    // The agents.md convention: agents discover this file by name, like a
+    // README — SKILL.md does not have to link it. Case-insensitive.
+    for (const name of ['AGENTS.md', 'agents.md']) {
+      const { result } = runReferences('Body with no links.', ['SKILL.md', name]);
+      expect(result.orphans).toEqual([]);
+    }
+  });
+
+  it('a NESTED AGENTS.md is still an orphan candidate — only the root file is the convention', () => {
+    const { result } = runReferences('Body with no links.', ['SKILL.md', 'docs/AGENTS.md']);
+    expect(result.orphans).toEqual(['docs/AGENTS.md']);
+  });
+
+  it('AGENTS.md stays excluded when SKILL.md is absent (null body)', () => {
+    const { result } = runReferences(null, ['SKILL.md', 'AGENTS.md', 'notes.md']);
+    expect(result.orphans).toEqual(['notes.md']);
+  });
+
   it('orphans are sorted ascending', () => {
     const { result } = runReferences('Body.', [
       'SKILL.md',
