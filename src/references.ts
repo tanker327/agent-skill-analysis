@@ -25,8 +25,10 @@
  *
  * Transitive reachability (orphan check ONLY — declared/resolved/broken stay
  * direct-from-SKILL.md by design):
- *   BFS from the SKILL.md body through every referenced text file whose text
- *   was supplied in `fileTexts` — markdown docs AND source files alike, so
+ *   BFS from the SKILL.md body — plus its raw YAML frontmatter, scanned as a
+ *   non-markdown root doc so script paths in hook `command:` strings count (F22)
+ *   — through every referenced text file whose text was supplied in `fileTexts`
+ *   — markdown docs AND source files alike, so
  *   SKILL.md → guide.md → a.py → b.py chains all connect. A candidate counts
  *   as referenced when ANY reachable file mentions it under an accepted
  *   spelling:
@@ -380,6 +382,10 @@ export interface ReferencesResult {
  *                    `bodyText`). Only files in this map that are reachable
  *                    from SKILL.md are scanned for the transitive orphan
  *                    check — keeps this stage pure (no IO).
+ * @param frontmatterText Raw YAML frontmatter block of SKILL.md (null when
+ *                    absent). Scanned as a non-markdown root doc so paths named
+ *                    in frontmatter — hook `command:` strings, asset keys —
+ *                    count toward reachability and don't become false orphans (F22).
  */
 export function analyzeReferences(
   bodyText: string | null,
@@ -389,6 +395,7 @@ export function analyzeReferences(
   collector: DiagnosticCollector,
   fileTexts: ReadonlyMap<string, string> = new Map(),
   skillDir: string | null = null,
+  frontmatterText: string | null = null,
 ): ReferencesResult {
   // Build the exclusion set for orphan candidates.
   const excluded = new Set(STATIC_ORPHAN_EXCLUSIONS);
@@ -530,6 +537,13 @@ export function analyzeReferences(
     text: string;
     isMarkdown: boolean;
   }[] = [{ dir: '', scan, text: bodyText, isMarkdown: true }];
+  // Seed the raw YAML frontmatter as an additional root doc (F22). Treated as
+  // non-markdown — only the tier-3 raw path-boundary scan applies (incl. the
+  // `${VAR}/` dynamic-prefix form), so a script invoked by a hook `command:`
+  // string is reachable, while frontmatter prose can't fabricate markdown links.
+  if (frontmatterText !== null && frontmatterText !== '') {
+    scannedDocs.push({ dir: '', scan: EMPTY_SCAN, text: frontmatterText, isMarkdown: false });
+  }
   const enqueued = new Set(['SKILL.md']);
   const referenced = new Set<string>();
 

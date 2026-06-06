@@ -373,7 +373,7 @@ export function parseFrontmatterFromText(
   text: string,
   dir: string | null | undefined,
   collector: DiagnosticCollector,
-): { frontmatter: Frontmatter; body: string } {
+): { frontmatter: Frontmatter; body: string; frontmatterText: string | null } {
   const { yamlBlock, body } = splitSkillMd(text);
 
   let raw: Record<string, unknown> = {};
@@ -429,5 +429,8 @@ export function parseFrontmatterFromText(
     validateFrontmatter(frontmatter, dir, collector);
   }
 
-  return { frontmatter, body };
+  // yamlBlock is surfaced so the reference stage can scan the raw frontmatter
+  // for file mentions (e.g. hook `command:` strings that invoke scripts), which
+  // make those files reachable just as a body mention would (F22).
+  return { frontmatter, body, frontmatterText: yamlBlock };
 }

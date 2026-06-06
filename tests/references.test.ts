@@ -52,6 +52,7 @@ function runReferences(
   licensePath: string | null = null,
   docTexts: ReadonlyMap<string, string> = new Map(),
   skillDir: string | null = null,
+  frontmatterText: string | null = null,
 ) {
   const collector = new DiagnosticCollector();
   const result = analyzeReferences(
@@ -62,6 +63,7 @@ function runReferences(
     collector,
     docTexts,
     skillDir,
+    frontmatterText,
   );
   return { result, codes: collector.all().map((d) => d.code) };
 }
@@ -467,6 +469,59 @@ describe('analyzeReferences — directory-as-resource-pool reachability (F21)', 
       'other/leftover.bin',
     ]);
     expect(result.orphans).toEqual(['other/leftover.bin']);
+  });
+});
+
+describe('analyzeReferences — frontmatter-mentioned paths are reachable (F22)', () => {
+  it('a script named in a frontmatter hook command is NOT an orphan', () => {
+    // planning-with-files repro: the Stop hook invokes a script via a
+    // `${VAR}/scripts/x` command string inside the YAML frontmatter, not the body.
+    const fm =
+      'name: planner\n' +
+      'hooks:\n' +
+      '  Stop:\n' +
+      '    command: "RUN=\\"${CLAUDE_SKILL_DIR}/scripts/check-complete.ps1\\"; pwsh $RUN"\n';
+    const { result, codes } = runReferences(
+      'Body with no script mentions.',
+      ['SKILL.md', 'scripts/check-complete.ps1'],
+      null,
+      null,
+      new Map(),
+      null,
+      fm,
+    );
+    expect(result.orphans).toEqual([]);
+    expect(codes.filter((c) => c === 'orphan-file')).toHaveLength(0);
+  });
+
+  it('a script named NOWHERE (not body, not frontmatter) stays an orphan', () => {
+    const fm = 'name: planner\nhooks:\n  Stop:\n    command: "${DIR}/scripts/used.ps1"\n';
+    const { result } = runReferences(
+      'Body with no script mentions.',
+      ['SKILL.md', 'scripts/used.ps1', 'scripts/unused.ps1'],
+      null,
+      null,
+      new Map(),
+      null,
+      fm,
+    );
+    // used.ps1 credited via frontmatter; unused.ps1 has no mention anywhere.
+    expect(result.orphans).toEqual(['scripts/unused.ps1']);
+  });
+
+  it('frontmatter prose cannot fabricate a markdown-link reference (non-markdown scan)', () => {
+    // A bracketed-looking description must NOT be parsed as a link target — the
+    // frontmatter doc is scanned tier-3 (raw path-boundary) only.
+    const fm = 'name: x\ndescription: "see [the guide](guide.md) elsewhere"\n';
+    const { result } = runReferences('Body.', ['SKILL.md', 'guide.md'], null, null, new Map(), null, fm);
+    // guide.md is mentioned as a bare path token in the frontmatter, so tier-3
+    // DOES credit it — but it must not appear in declared (declared = body links).
+    expect(result.declared).toEqual([]);
+  });
+
+  it('empty-string frontmatter is not scanned (no crash, no effect)', () => {
+    const { result } = runReferences('Body.', ['SKILL.md', 'scripts/x.py'], null, null, new Map(), null, '');
+    expect(result.orphans).toEqual(['scripts/x.py']);
   });
 });
 

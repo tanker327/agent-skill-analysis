@@ -102,6 +102,10 @@ export async function analyze(
 
   let frontmatter: Frontmatter = EMPTY_FRONTMATTER;
   let bodyText: string | null = null;
+  // Raw YAML frontmatter text (null when SKILL.md is absent or has no fences).
+  // Scanned by the reference stage so paths named in frontmatter — hook
+  // `command:` strings, asset keys — count as references (F22).
+  let frontmatterText: string | null = null;
   // skillMdText is the raw decoded SKILL.md content — passed to computeDigest
   // so the digest stage can re-parse the YAML block fresh (R1 definition).
   let skillMdText: string | null = null;
@@ -117,6 +121,7 @@ export async function analyze(
     const parsed = parseFrontmatterFromText(skillMdText, dir, collector);
     frontmatter = parsed.frontmatter;
     bodyText = parsed.body;
+    frontmatterText = parsed.frontmatterText;
   }
 
   // Stage ⑥: body analysis (P2). analyzeBody returns lines, headings, and the
@@ -178,6 +183,7 @@ export async function analyze(
     collector,
     fileTexts,
     dir,
+    frontmatterText,
   );
 
   // Stage: digest (P5). computeDigest re-parses the SKILL.md YAML block fresh
