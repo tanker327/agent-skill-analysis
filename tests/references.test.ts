@@ -172,6 +172,52 @@ describe('analyzeReferences — resolved and broken', () => {
     expect(result.broken).toContain('missing-dir/');
   });
 
+  it('a ./-prefixed link to an existing file resolves, not broken (F12)', () => {
+    // [x](./references/a.md) must resolve identically to references/a.md.
+    const body = '[a](./references/a.md) and [b](./scripts/b.py)';
+    const { result, codes } = runReferences(body, [
+      'SKILL.md',
+      'references/a.md',
+      'scripts/b.py',
+    ]);
+    expect(result.resolved).toEqual(['./references/a.md', './scripts/b.py']);
+    expect(result.broken).toEqual([]);
+    expect(codes).not.toContain('broken-ref');
+  });
+
+  it('a ./-prefixed directory link resolves (F12 + F10)', () => {
+    const body = '[ex](./examples/case/)';
+    const { result } = runReferences(body, ['SKILL.md', 'examples/case/notes.md']);
+    expect(result.resolved).toEqual(['./examples/case/']);
+    expect(result.broken).toEqual([]);
+  });
+
+  it('an anchor link file.md#section resolves when the file exists (F13)', () => {
+    // The #fragment names a heading, not a path — strip it before resolving.
+    const body =
+      'See [step 1](references/workflow.md#step-1) and [step 2](references/workflow.md#step-2).';
+    const { result, codes } = runReferences(body, ['SKILL.md', 'references/workflow.md']);
+    expect(result.broken).toEqual([]);
+    expect(result.resolved).toContain('references/workflow.md#step-1');
+    expect(result.resolved).toContain('references/workflow.md#step-2');
+    expect(codes).not.toContain('broken-ref');
+  });
+
+  it('an anchor link to a NON-existent file is still broken (F13 boundary)', () => {
+    const body = '[x](references/gone.md#top)';
+    const { result } = runReferences(body, ['SKILL.md', 'references/workflow.md']);
+    expect(result.broken).toContain('references/gone.md#top');
+  });
+
+  it('a link target that normalizes to empty (".") is broken, not resolved (F12 boundary)', () => {
+    // '.' / './' normalize to '' — they name no file or directory, so they cannot
+    // resolve. Guards the norm === '' branch.
+    const body = '[self](.) and [more](./)';
+    const { result } = runReferences(body, ['SKILL.md', 'guide.md']);
+    expect(result.resolved).toEqual([]);
+    expect(result.broken).toContain('.');
+  });
+
   it('declared = resolved ∪ broken (disjoint, complete)', () => {
     const body = '[exists](references/guide.md) [gone](references/gone.md)';
     const { result } = runReferences(body, ['SKILL.md', 'references/guide.md']);
@@ -223,15 +269,15 @@ describe('analyzeReferences — external references (F7)', () => {
     expect(result.external).toEqual(['../other/SKILL.md']);
   });
 
-  it('a .. path that normalizes back inside the folder is NOT external', () => {
+  it('a .. path that normalizes back inside the folder is NOT external, and resolves (F12)', () => {
     // 'references/../guide.md' normalizes to 'guide.md' — it does not escape the
-    // folder, so it is treated as an in-folder reference, not external. (Raw-string
-    // resolution is unchanged: this non-canonical spelling lands in broken, not
-    // resolved — F7 only reclassifies escaping paths, it does not add normalization.)
+    // folder (not external) and, since F12 added `.`/`..` normalization to the
+    // resolve check, it now correctly RESOLVES to the existing guide.md.
     const body = '[g](references/../guide.md)';
     const { result } = runReferences(body, ['SKILL.md', 'guide.md']);
     expect(result.external).toEqual([]);
-    expect(result.broken).toContain('references/../guide.md');
+    expect(result.broken).toEqual([]);
+    expect(result.resolved).toContain('references/../guide.md');
   });
 
   it('normalizes "." and empty path segments when deciding external vs internal', () => {
@@ -715,6 +761,16 @@ describe('analyzeReferences — code-file chains (the reference graph crosses so
           'source "$SCRIPT_DIR/utils.sh"\n' +
           'trap "$(dirname "$0")/cleanup.sh" EXIT\n',
       }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('brace-template prefix `{baseDir}/scripts/x.sh args` rescues the script (F16)', () => {
+    // A doc that references a script via a templated path prefix with trailing CLI
+    // args — the path must still be recognized, so the script is not a false orphan.
+    const { result } = runReferences(
+      'Run `{baseDir}/scripts/find-sessions.sh -S "$SOCKET"` to locate sessions.',
+      ['SKILL.md', 'scripts/find-sessions.sh'],
     );
     expect(result.orphans).toEqual([]);
   });

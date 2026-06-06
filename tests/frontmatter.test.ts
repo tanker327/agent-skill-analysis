@@ -176,6 +176,30 @@ describe('normalizeFrontmatter', () => {
     ]);
   });
 
+  it('allowed-tools does NOT split on space/comma inside parentheses (F14)', () => {
+    const collector = new DiagnosticCollector();
+    // A single tool pattern with an inner space must stay one token.
+    expect(
+      normalizeFrontmatter({ 'allowed-tools': 'Bash(multica *)' }, collector).allowedTools,
+    ).toEqual(['Bash(multica *)']);
+    // Mixed: a paren pattern alongside plain tools, comma-separated.
+    expect(
+      normalizeFrontmatter(
+        { 'allowed-tools': 'Bash(git add:*), Read, Bash(multica run *)' },
+        collector,
+      ).allowedTools,
+    ).toEqual(['Bash(git add:*)', 'Read', 'Bash(multica run *)']);
+  });
+
+  it('allowed-tools with an unbalanced ) does not crash; the paren stays in the token (F14)', () => {
+    // Defensive: a stray closing paren at depth 0 is kept verbatim, not treated as
+    // structure (depth never goes negative).
+    const collector = new DiagnosticCollector();
+    expect(normalizeFrontmatter({ 'allowed-tools': 'Read), Write' }, collector).allowedTools).toEqual(
+      ['Read)', 'Write'],
+    );
+  });
+
   // YAML sequence (array) form of allowed-tools — covers the Array.isArray branch in normalizeFrontmatter
   it('allowed-tools as a YAML sequence (string[]) is parsed correctly', () => {
     const collector = new DiagnosticCollector();

@@ -127,6 +127,38 @@ function toStringOrNull(v: unknown): string | null {
 }
 
 /**
+ * Split an `allowed-tools` scalar into tool tokens (F9/F14).
+ *
+ * Tools are written comma- or space-separated (`Read, Grep, Glob`), but a single
+ * tool may itself contain spaces/commas inside a parenthesized pattern
+ * (`Bash(multica *)`, `Bash(git add:*)`). So split on commas/whitespace ONLY at
+ * parenthesis depth 0 — never inside `(...)`. Empty tokens are dropped.
+ */
+function splitAllowedTools(s: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let depth = 0;
+  for (const ch of s) {
+    if (ch === '(') {
+      depth++;
+      cur += ch;
+    } else if (ch === ')') {
+      if (depth > 0) depth--;
+      cur += ch;
+    } else if (depth === 0 && (ch === ',' || /\s/.test(ch))) {
+      if (cur.length > 0) {
+        out.push(cur);
+        cur = '';
+      }
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.length > 0) out.push(cur);
+  return out;
+}
+
+/**
  * Stage ④: normalize a raw YAML-parsed object into a typed Frontmatter.
  *
  * - Known keys are extracted and typed.
@@ -197,7 +229,7 @@ export function normalizeFrontmatter(
   let allowedTools: string[] | null = null;
   const rawTools = raw['allowed-tools'];
   if (typeof rawTools === 'string') {
-    const parts = rawTools.trim().split(/[\s,]+/).filter(Boolean);
+    const parts = splitAllowedTools(rawTools.trim());
     if (parts.length > 0) allowedTools = parts;
   } else if (Array.isArray(rawTools)) {
     const parts = rawTools.filter((t): t is string => typeof t === 'string');

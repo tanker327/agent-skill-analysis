@@ -138,17 +138,19 @@ function escapeRegex(s: string): string {
 const PATH_CHAR_CLASS = '[A-Za-z0-9._/\\-]';
 
 /**
- * Shell scripts anchor paths with runtime-computed prefixes:
+ * Shell scripts and skill docs anchor paths with runtime/templated prefixes:
  *   source "$SCRIPT_DIR/utils.sh"
  *   trap "$(dirname "$0")/cleanup.sh" EXIT
  *   "${DIR}/x.sh"
+ *   `{baseDir}/scripts/find-sessions.sh --all`   (F16: brace-template prefix)
  * The '/' after the expansion is a path char, so the plain boundary regex
- * rejects these spellings. This alternative lookbehind accepts a form
- * preceded by `<dynamic expansion>/` — a `$VAR`/`${VAR}` expansion or a
- * `$(...)` substitution's closing paren. (JS lookbehind is variable-length,
- * so the `$VAR` alternative is expressible — unlike in PCRE.)
+ * rejects these spellings. This alternative lookbehind accepts a form preceded
+ * by `<dynamic expansion>/` — a `$VAR`/`${VAR}` expansion, a `$(...)`
+ * substitution's closing paren, OR a `{...}` template placeholder's closing
+ * brace (F16). (JS lookbehind is variable-length, so the `$VAR` alternative is
+ * expressible — unlike in PCRE.)
  */
-const DYNAMIC_PREFIX_LOOKBEHIND = String.raw`(?<=(?:\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\))/)`;
+const DYNAMIC_PREFIX_LOOKBEHIND = String.raw`(?<=(?:\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\)|\})/)`;
 
 /**
  * Determine whether `filePath` is referenced anywhere in the SKILL.md body.
@@ -428,12 +430,17 @@ export function analyzeReferences(
   for (const fp of allPaths) {
     for (let d = dirnamePosix(fp); d !== ''; d = dirnamePosix(d)) dirSet.add(d);
   }
-  // A declared path resolves when it is a file in the tree OR a directory in it
-  // (trailing slash stripped). Directories are real reference targets.
+  // A declared path resolves when — after stripping any `#fragment` (F13) and
+  // normalizing `./`/`../`/`.` segments (F12) — it names a file in the tree OR a
+  // directory in it (F10). normalizeRelPosix drops a trailing slash, so a dir link
+  // 'templates/' normalizes to 'templates' and matches dirSet. This mirrors the
+  // normalization the reachability/orphan pass already applies, so resolved/broken
+  // and orphans no longer disagree on the same link.
   const resolvesInTree = (p: string): boolean => {
-    if (allPathsSet.has(p)) return true;
-    const noSlash = p.endsWith('/') ? p.slice(0, -1) : p;
-    return dirSet.has(noSlash);
+    const hash = p.indexOf('#');
+    const norm = normalizeRelPosix(hash === -1 ? p : p.slice(0, hash));
+    if (norm === '') return false;
+    return allPathsSet.has(norm) || dirSet.has(norm);
   };
 
   // resolved / broken split the in-folder references against the full path set.
