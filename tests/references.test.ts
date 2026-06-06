@@ -453,6 +453,38 @@ describe('analyzeReferences — code-file chains (the reference graph crosses so
     expect(result.orphans).toEqual([]);
   });
 
+  it('parent-level relative import (..lib.x) connects across packages', () => {
+    // Python semantics: in pkg/sub/main.py, '.' is the current package
+    // (pkg.sub) and each extra dot goes one level up — '..lib.helpers'
+    // denotes pkg/lib/helpers.py (NOT root-level lib/).
+    const { result } = runReferences(
+      'Run `pkg/sub/main.py` to start.',
+      ['SKILL.md', 'pkg/lib/helpers.py', 'pkg/sub/main.py'],
+      null,
+      null,
+      // '..lib.helpers' is the only spelling present: not the path, not the
+      // basename in path-char context… the form itself must do the matching.
+      docs({ 'pkg/sub/main.py': 'from ..lib.helpers import go\n' }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('__init__.py re-exports keep the chain going (rescue THROUGH the init)', () => {
+    const { result } = runReferences(
+      'Run `scripts/cli.py` now.',
+      ['SKILL.md', 'scripts/__init__.py', 'scripts/cli.py', 'scripts/util_fns.py'],
+      null,
+      null,
+      docs({
+        'scripts/cli.py': 'print(1)\n', // mentions nothing itself
+        // The package init (reachable via the ancestor rule) re-exports —
+        // util_fns is only discoverable by scanning the init's content.
+        'scripts/__init__.py': 'from .util_fns import *\n',
+      }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
   it('js require chain connects', () => {
     const { result } = runReferences(
       'Start with `lib/a.js`.',
@@ -462,6 +494,50 @@ describe('analyzeReferences — code-file chains (the reference graph crosses so
       docs({ 'lib/a.js': "const b = require('./b');\n" }),
     );
     expect(result.orphans).toEqual([]);
+  });
+
+  it('shell chain connects: md → run.sh → sourced helper → python', () => {
+    const { result } = runReferences(
+      'Start everything with `scripts/run.sh`.',
+      ['SKILL.md', 'scripts/run.sh', 'scripts/helper.sh', 'tools/job.py'],
+      null,
+      null,
+      docs({
+        'scripts/run.sh': '#!/bin/bash\nsource ./helper.sh\npython -m tools.job\n',
+        'scripts/helper.sh': 'echo helper\n',
+      }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('shell $VAR-prefixed paths match: "$SCRIPT_DIR/utils.sh" and "$(dirname "$0")/x"', () => {
+    const { result } = runReferences(
+      'Run `scripts/run.sh` first.',
+      ['SKILL.md', 'scripts/run.sh', 'scripts/utils.sh', 'scripts/cleanup.sh'],
+      null,
+      null,
+      docs({
+        'scripts/run.sh':
+          '#!/bin/bash\n' +
+          'SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\n' +
+          'source "$SCRIPT_DIR/utils.sh"\n' +
+          'trap "$(dirname "$0")/cleanup.sh" EXIT\n',
+      }),
+    );
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('dynamic-prefix matching does not weaken R4: plain dir/ prefixes still never match', () => {
+    const { result } = runReferences(
+      'Run `scripts/run.sh` first.',
+      ['SKILL.md', 'scripts/run.sh', 'utils.sh'],
+      null,
+      null,
+      // 'other/utils.sh' mentions a DIFFERENT utils.sh — the root-level file
+      // must stay an orphan ('other' is not a dynamic expansion).
+      docs({ 'scripts/run.sh': 'echo see other/utils.sh for details\n' }),
+    );
+    expect(result.orphans).toEqual(['utils.sh']);
   });
 
   it('an UNREACHABLE script does not rescue its imports', () => {

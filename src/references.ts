@@ -47,7 +47,10 @@
  * scanner on source code would extract meaningless links/spans):
  *   1. Exact match in scanMarkdown linkTargets (explicit markdown links).
  *   2. Exact match in scanMarkdown inlineCode spans (backtick mentions).
- *   3. Path-boundary word match in the raw text — NOT bare substring.
+ *   3. Path-boundary word match in the raw text — NOT bare substring. Also
+ *      accepts a shell dynamic prefix ("$SCRIPT_DIR/utils.sh",
+ *      "$(dirname "$0")/cleanup.sh") where the expansion's trailing '/'
+ *      would otherwise fail the boundary; plain 'dir/' prefixes never match.
  *
  * Path-boundary matching (R4 — short-path collision prevention):
  *   A file at 'references/guide.md' is matched by the pattern:
@@ -85,6 +88,19 @@ function escapeRegex(s: string): string {
 const PATH_CHAR_CLASS = '[A-Za-z0-9._/\\-]';
 
 /**
+ * Shell scripts anchor paths with runtime-computed prefixes:
+ *   source "$SCRIPT_DIR/utils.sh"
+ *   trap "$(dirname "$0")/cleanup.sh" EXIT
+ *   "${DIR}/x.sh"
+ * The '/' after the expansion is a path char, so the plain boundary regex
+ * rejects these spellings. This alternative lookbehind accepts a form
+ * preceded by `<dynamic expansion>/` — a `$VAR`/`${VAR}` expansion or a
+ * `$(...)` substitution's closing paren. (JS lookbehind is variable-length,
+ * so the `$VAR` alternative is expressible — unlike in PCRE.)
+ */
+const DYNAMIC_PREFIX_LOOKBEHIND = String.raw`(?<=(?:\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\))/)`;
+
+/**
  * Determine whether `filePath` is referenced anywhere in the SKILL.md body.
  *
  * Three tiers (first match wins):
@@ -109,8 +125,14 @@ function isReferenced(
   // The lookbehind/lookahead use PATH_CHAR_CLASS so that a short path like
   // 'guide.md' cannot match inside 'references/guide.md' (the '/' separating
   // them is a path char, so the lookbehind fails).
-  const re = new RegExp(`(?<!${PATH_CHAR_CLASS})${escapeRegex(filePath)}(?!${PATH_CHAR_CLASS})`);
-  return re.test(bodyText);
+  const escaped = escapeRegex(filePath);
+  const tail = `(?!${PATH_CHAR_CLASS})`;
+  if (new RegExp(`(?<!${PATH_CHAR_CLASS})${escaped}${tail}`).test(bodyText)) return true;
+
+  // Tier 3b: the same form behind a shell dynamic prefix ("$SCRIPT_DIR/x.sh",
+  // "$(dirname "$0")/x.sh") — the '/' after the expansion would otherwise
+  // fail the R4 lookbehind. Plain 'dir/x.sh' prefixes still never match.
+  return new RegExp(`${DYNAMIC_PREFIX_LOOKBEHIND}${escaped}${tail}`).test(bodyText);
 }
 
 /** POSIX dirname on a root-relative path: '' for root-level files. */
